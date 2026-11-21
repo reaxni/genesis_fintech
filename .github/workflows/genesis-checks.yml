@@ -19,13 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --target verify --tag genesis-g0 .
-      - run: docker run --rm --network none genesis-g0 bash scripts/check.sh
+      - run: bash scripts/verify.sh --container-smoke
   full:
     if: github.event_name == 'workflow_dispatch' && inputs.full
     needs: bootstrap
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose build
       - run: bash scripts/verify.sh

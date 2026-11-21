@@ -2,8 +2,13 @@
 
 import io
 import json
+import socket
+import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from time import monotonic
 from types import ModuleType
 from unittest.mock import Mock, patch
 
@@ -31,6 +36,39 @@ class FakeEnvironment:
 
 
 class RunnerTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux Unix-socket transport")
+    def test_two_episodes_over_unix_socket(self):
+        from genesis_audit.runner.remote_policy import PolicyListener
+
+        observations = [{"remaining_steps": 100}, {"remaining_steps": 99}]
+        action = {"name": "list_records", "args": {"table": "ledger", "limit": 1}}
+
+        def worker(path):
+            messages = []
+            for _ in range(2):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(5)
+                    client.connect(str(path))
+                    with client.makefile("rb") as reader:
+                        for _ in observations:
+                            messages.append(receive(reader))
+                            send(client, action)
+                        self.assertEqual(reader.read(1), b"")
+            return messages
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "genesis.sock"
+            with PolicyListener(path) as listener, ThreadPoolExecutor(max_workers=1) as pool:
+                client = pool.submit(worker, path)
+                expected = []
+                for policy in ("random", "reconciliation"):
+                    with listener.episode(policy) as choose:
+                        for observation in observations:
+                            self.assertEqual(choose(observation, monotonic() + 5), action)
+                            expected.append({"policy": policy, "observation": observation})
+                self.assertEqual(client.result(timeout=5), expected)
+            self.assertFalse(path.exists())
+
     def test_runner_scores_closed_without_revealing_reward(self):
         submitted = oracle_findings(FIXTURE)
         actions = iter([

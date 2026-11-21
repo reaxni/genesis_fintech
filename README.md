@@ -24,7 +24,6 @@ python -m unittest discover -s tests/integration -v
 ## Полный запуск после интеграции A и B
 
 ```bash
-docker compose build
 bash scripts/verify.sh
 ```
 

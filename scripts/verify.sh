@@ -4,14 +4,25 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 if [[ "${1:-}" == "--bootstrap" ]]; then
     exec bash scripts/check.sh
 fi
-mkdir -p artifacts
+case "${1:-}" in
+    ""|--container-smoke) ;;
+    *) echo "Usage: bash scripts/verify.sh [--bootstrap|--container-smoke]" >&2; exit 2 ;;
+esac
 project="genesis_verify_$$"
+compose=(docker compose --project-name "$project")
 cleanup() {
-    docker compose --project-name "$project" down --volumes >/dev/null 2>&1 || true
+    "${compose[@]}" down --volumes --rmi local >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 command -v docker >/dev/null
-docker compose --project-name "$project" run --rm --no-deps --no-TTY --pull never -e GENESIS_FULL_CHECKS=1 verify bash -ceu '
+if [[ "${1:-}" == "--container-smoke" ]]; then
+    "${compose[@]}" build verify
+    "${compose[@]}" run --rm --no-deps --no-TTY --pull never verify bash scripts/check.sh
+    exit 0
+fi
+mkdir -p artifacts
+"${compose[@]}" build
+"${compose[@]}" run --rm --no-deps --no-TTY --pull never -e GENESIS_FULL_CHECKS=1 verify bash -ceu '
     bash scripts/check.sh
     for suite in tests/data tests/contract tests/verification; do
         python - "$suite" <<'"'"'PY'"'"'
@@ -26,8 +37,8 @@ PY
     done
 '
 result=0
-docker compose --project-name "$project" up --pull never --no-build --abort-on-container-exit --exit-code-from verify || result=$?
-if ! docker compose --project-name "$project" cp verify:/out/. artifacts/; then
+"${compose[@]}" up --pull never --no-build --abort-on-container-exit --exit-code-from verify || result=$?
+if ! "${compose[@]}" cp verify:/out/. artifacts/; then
     if [[ "$result" -eq 0 ]]; then exit 1; fi
 fi
 exit "$result"
