@@ -1,0 +1,2 @@
+{"doc_id":"doc-pay-01","payment_id":"pay-01","timestamp":"2026-03-03T09:00:00+05:00","currency":"KZT","amount_minor":5000000,"invoice_refs":["inv-01"],"intended_allocations":[{"invoice_id":"inv-01","amount_minor":5000000,"currency":"KZT"}]}
+{"doc_id":"doc-pay-02","payment_id":"pay-02","timestamp":"2026-03-05T09:00:00+05:00","currency":"KZT","amount_minor":7000000,"invoice_refs":["inv-01"],"intended_allocations":[{"invoice_id":"inv-01","amount_minor":7000000,"currency":"KZT"}]}

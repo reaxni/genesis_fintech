@@ -1,0 +1,8 @@
+{
+  "period_boundary": "[start,end)",
+  "fx_date_basis": "event_date_local",
+  "rounding": "HALF_EVEN",
+  "amount_tolerance_minor": {
+    "payment_allocation": 0
+  }
+}

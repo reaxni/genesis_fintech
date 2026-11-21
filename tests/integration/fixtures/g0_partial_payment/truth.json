@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "issue_id": "issue-01",
+      "type": "payment_allocation",
+      "affected_ids": [
+        "pay-02",
+        "inv-01"
+      ],
+      "expected_amount_minor": 5000000,
+      "currency": "KZT",
+      "evidence_sets": [
+        [
+          "doc-pay-02",
+          "doc-inv-01",
+          "row-06",
+          "row-07"
+        ]
+      ]
+    }
+  ]
+}

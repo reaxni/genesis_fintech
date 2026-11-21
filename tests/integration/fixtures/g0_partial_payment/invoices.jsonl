@@ -1,0 +1,1 @@
+{"doc_id":"doc-inv-01","invoice_id":"inv-01","entity_id":"ent-01","issued_at":"2026-03-01T09:00:00+05:00","due_at":"2026-03-20T09:00:00+05:00","currency":"KZT","total_minor":12000000,"line_items":[{"description":"Synthetic service","amount_minor":12000000}]}
