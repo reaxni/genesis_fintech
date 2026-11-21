@@ -3,6 +3,7 @@
 from copy import deepcopy
 from pathlib import Path
 from random import Random
+from signal import SIGTERM, signal
 from socket import AF_UNIX, SOCK_STREAM, socket
 from time import sleep
 import sys
@@ -36,4 +37,5 @@ def work(path: Path) -> None:
 
 
 if __name__ == "__main__":
+    signal(SIGTERM, lambda _signum, _frame: sys.exit(0))
     work(Path(sys.argv[1]))
