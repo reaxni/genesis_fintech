@@ -1,0 +1,33 @@
+services:
+  verify:
+    build:
+      context: .
+      target: verify
+    network_mode: none
+    cpus: 1
+    mem_limit: 2g
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ipc:/ipc
+      - reports:/out
+    tmpfs: [/tmp]
+  policy:
+    build:
+      context: .
+      target: policy
+    network_mode: none
+    cpus: 1
+    mem_limit: 2g
+    pids_limit: 32
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ipc:/ipc:ro
+    tmpfs: [/tmp]
+volumes:
+  ipc:
+  reports:
