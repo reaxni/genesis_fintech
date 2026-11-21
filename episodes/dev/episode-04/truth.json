@@ -1,0 +1,1 @@
+{"issues":[{"issue_id":"5c639cc18ca2e7ec29cb","type":"duplicate_invoice","affected_ids":["ada949a46716a566cd36","b3fc228da58056125d47","d70088feab656c350a0e"],"expected_amount_minor":1825000,"currency":"KZT","evidence_sets":[["808184d3c99303ea24c1","c1323bffcf6996aab51b","6ce82e695c318887fc89","b3fc228da58056125d47","d70088feab656c350a0e"]]}]}
