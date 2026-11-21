@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: Run the complete check after roles A and B are integrated
+        description: Run all suites and the open corpus
         type: boolean
         default: false
 
@@ -23,21 +23,9 @@ jobs:
   full:
     if: github.event_name != 'workflow_dispatch' || inputs.full
     needs: bootstrap
-    permissions:
-      contents: read
-      actions: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Find verification of the integrated main commit
-        continue-on-error: true
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/genesis-checks.yml/runs?branch=main&event=push&head_sha=$BASE_SHA" \
-            --jq '.workflow_runs[] | [.id, .head_sha, .status, .conclusion, .html_url] | @tsv'
       - run: bash scripts/verify.sh
       - uses: actions/upload-artifact@v4
         with:
