@@ -1,4 +1,4 @@
-"""Validate planning artifacts, not the future financial-audit environment."""
+"""Validate project configuration and acceptance documentation."""
 import json
 import pathlib
 import re
@@ -22,7 +22,27 @@ def main():
     assert len(checks) == 85
     assert len({c["id"] for c in checks}) == 85
     assert sum(c["weight"] for c in checks) == 100
-    assert all(c["status"] == "TODO" and c["evidence"] is None for c in checks)
+    matrix = (ROOT / "docs/ACCEPTANCE_MATRIX.md").read_text(encoding="utf-8")
+    matrix_rows = re.findall(r"^\| ([CDRPE]\d{2}) \|.*\| ([A-Z_]+) \|$", matrix, re.MULTILINE)
+    assert len(matrix_rows) == len(checks)
+    assert dict(matrix_rows) == {check["id"]: check["status"] for check in checks}
+
+    runs = data.get("verification_runs", {})
+    for check in checks:
+        status = check["status"]
+        assert status in {"TODO", "IN_PROGRESS", "BLOCKED", "VERIFIED"}, check["id"]
+        if status == "VERIFIED":
+            evidence = check["evidence"]
+            assert evidence and evidence["result"], check["id"]
+            assert evidence["runs"] and evidence["references"], check["id"]
+            assert check["planned_test"] == evidence["references"][0]["path"], check["id"]
+            for run_id in evidence["runs"]:
+                run = runs[run_id]
+                assert all(run[key] for key in ("command", "version", "commit", "report")), run_id
+            for reference in evidence["references"]:
+                assert (ROOT / reference["path"]).is_file(), reference["path"]
+    if data["status"] == "LOCAL_VERIFIED":
+        assert all(check["status"] == "VERIFIED" for check in checks)
     for prefix, count in (("C",20),("D",20),("R",20),("P",20),("E",5)):
         assert {c["id"] for c in checks if c["id"].startswith(prefix)} == {
             prefix + str(i).zfill(2) for i in range(1,count+1)}
@@ -47,10 +67,10 @@ def main():
     task_ids = set(re.findall(r"\| (T\d{2}) \|", (ROOT / "docs/TASKS.md").read_text(encoding="utf-8")))
     assert task_ids == {"T"+str(i).zfill(2) for i in range(12)}
     print(json.dumps({
-        "scope":"planning/configuration only; no product tests executed",
+        "scope":"configuration and acceptance evidence references",
         "toml_files_parsed":6,"roles":sorted(roles),
         "scoring_checks":len(checks),"maximum_points":100,
-        "all_product_checks":"TODO",
+        "locally_verified_checks":sum(check["status"] == "VERIFIED" for check in checks),
         "task_ids":sorted(task_ids),"required_files_checked":len(required),
         "custom_roles_activation":"not installed; protected .codex write was rejected"
     }, ensure_ascii=False, indent=2))
