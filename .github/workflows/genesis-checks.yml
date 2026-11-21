@@ -21,9 +21,14 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash scripts/verify.sh --container-smoke
   full:
-    if: github.event_name == 'workflow_dispatch' && inputs.full
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.full)
     needs: bootstrap
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/verify.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: genesis-verification
+          path: artifacts/*.jsonl
+          if-no-files-found: error
