@@ -1,0 +1,27 @@
+# Prepared project configuration; NOT installed in .codex.
+# Target: .codex/config.toml; role paths below are relative to that target.
+# Current reference: https://learn.chatgpt.com/docs/agent-configuration/subagents
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 5
+
+[agents.data_engineer]
+description = "Synthetic accounting history, causal mutations, public documents and private provenance."
+config_file = "agents/data_engineer.toml"
+
+[agents.env_engineer]
+description = "RL reset/step, tools, state machine, process isolation and execution limits."
+config_file = "agents/env_engineer.toml"
+
+[agents.reward_engineer]
+description = "Strict finding validation, deterministic maximum matching, metrics and reward."
+config_file = "agents/reward_engineer.toml"
+
+[agents.verifier_engineer]
+description = "Independent accounting verification, metamorphic checks and reproducible evaluation."
+config_file = "agents/verifier_engineer.toml"
+
+[agents.reviewer]
+description = "Read-only acceptance review against published checks and security boundaries."
+config_file = "agents/reviewer.toml"
+

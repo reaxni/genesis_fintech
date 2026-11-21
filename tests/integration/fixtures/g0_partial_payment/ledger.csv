@@ -1,0 +1,8 @@
+row_id,timestamp,account,debit_minor,credit_minor,currency,entity_id,invoice_id,payment_id,posting_group_id,event_at,allocation_minor,allocation_currency,fx_source_minor,fx_source_currency
+row-01,2026-03-01T09:00:00+05:00,receivables,12000000,0,KZT,ent-01,inv-01,,pg-01,2026-03-01T09:00:00+05:00,,,,
+row-02,2026-03-01T09:00:00+05:00,revenue,0,12000000,KZT,ent-01,inv-01,,pg-01,2026-03-01T09:00:00+05:00,,,,
+row-03,2026-03-03T09:00:00+05:00,cash,5000000,0,KZT,ent-01,,pay-01,pg-02,2026-03-03T09:00:00+05:00,,,,
+row-04,2026-03-03T09:00:00+05:00,receivables,0,5000000,KZT,ent-01,inv-01,pay-01,pg-02,2026-03-03T09:00:00+05:00,5000000,KZT,,
+row-05,2026-03-05T09:00:00+05:00,cash,7000000,0,KZT,ent-01,,pay-02,pg-03,2026-03-05T09:00:00+05:00,,,,
+row-06,2026-03-05T09:00:00+05:00,receivables,0,2000000,KZT,ent-01,inv-01,pay-02,pg-03,2026-03-05T09:00:00+05:00,2000000,KZT,,
+row-07,2026-03-05T09:00:00+05:00,unapplied_cash,0,5000000,KZT,ent-01,,pay-02,pg-03,2026-03-05T09:00:00+05:00,,,,

@@ -1,0 +1,21 @@
+{
+  "episode_id": "g0-partial",
+  "findings": [
+    {
+      "type": "payment_allocation",
+      "affected_ids": [
+        "pay-02",
+        "inv-01"
+      ],
+      "claimed_amount_minor": 5000000,
+      "currency": "KZT",
+      "evidence_ids": [
+        "doc-pay-02",
+        "doc-inv-01",
+        "row-06",
+        "row-07"
+      ],
+      "explanation": "The payment allocates 20000 KZT of 70000 KZT to invoice inv-01."
+    }
+  ]
+}
