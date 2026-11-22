@@ -1,8 +1,8 @@
 # Матрица приёмки — 85 пунктов оценки
-По определениям от 20.11.2026. На ревизии [`1777be7`](https://github.com/reaxni/genesis_fintech/commit/1777be79e3ac08110e7bdbf718b45714a7b41520) прошли 106 тестов и отдельная проверка изоляции. Пять политик отработали на 20 открытых эпизодах. Статус `VERIFIED` относится к опубликованным воспроизводимым проверкам. Итоговые баллы выставляет жюри.
+По определениям от 20.11.2026. Статус `VERIFIED` относится к опубликованным воспроизводимым проверкам. Для каждого коммита результаты полного прогона и изоляции доступны в [GitHub Actions](https://github.com/reaxni/genesis_fintech/actions/workflows/genesis-checks.yml). Итоговые баллы выставляет жюри.
 
-- `bash scripts/verify.sh` на Ubuntu x86_64 с Docker и Python 3.11.11. [Прогон CI](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583)
-- `bash sandbox/run_isolation_checks.sh` на Ubuntu x86_64. [Проверка C18–C20](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583/job/137206618250)
+- `bash scripts/verify.sh` на Ubuntu x86_64 с Docker и Python 3.11.11. Задание CI `full`.
+- `bash sandbox/run_isolation_checks.sh` на Ubuntu x86_64. Задание CI `isolation` для C18–C20.
 C/D/R/P: по 20 pass/fail; E: 5 критериев по 0/1/2. Дополнительные M01–M12 из первоисточника нужны для точности matcher и не добавляют пунктов к 85.
 Полный контекст фикстур: docs/sources/check_definitions_2026-11-20.txt. В R по умолчанию inspection_steps=10, сумма 10000, tau=0. Submit не входит в inspection_steps.
 
@@ -104,14 +104,14 @@ C/D/R/P: по 20 pass/fail; E: 5 критериев по 0/1/2. Дополнит
 | C11–C14 | [test_env_contract.py](../tests/contract/test_env_contract.py) · `ErrorContract.test_c11…c14`. |
 | C15–C17 | Там же · `TerminationContract.test_c15…c17`. Лимиты C16 и C17 также проверены через [адаптер жюри](../tests/integration/test_real_environment.py). |
 | C18 | `TerminationContract.test_c18_*` с управляемыми часами и [Linux-проверка](../sandbox/run_isolation_checks.sh) с реальным дедлайном. Замеры 60,03 и 60,00 с, оба итоговых списка пусты. [Логи](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583/job/137206618250) |
-| C19 | `BoundaryContract.test_c19_closed_reward_is_numeric_zero_everywhere`. В 1 225 шагах закрытого прогона все награды равны 0. [Логи](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583/job/137206618250) |
+| C19 | `BoundaryContract.test_c19_closed_reward_is_numeric_zero_everywhere`. Все публичные награды в закрытом прогоне численно равны 0. Результат доступен в задании `isolation`. |
 | C20 | `BoundaryContract.test_c20_full_walk_has_no_private_data`, `test_env_never_opens_private_files` и [проверка контейнера](../sandbox/probe_policy_container.py). [Логи](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583/job/137206618250) |
 | D01–D20 | [test_generation.py](../tests/data/test_generation.py) · `GenerationTests.test_d01_to_d20` с независимым пересчётом и проверкой доказательств. |
 | R01–R20 | [test_scoring.py](../tests/scoring/test_scoring.py) · `PublishedScoringTests.test_r01_to_r20`. Набор также выполняет M01–M12 и сверку перебором для 512 графов. |
 | P01–P20 | [test_transforms.py](../tests/verification/test_transforms.py) · `VerificationTests.test_p01_to_p20_preserve_semantics_and_nested_order` и `PairedEnvironmentTests.test_p01_to_p20_reset_replay_and_score`. Побайтовая пересборка 20 опубликованных эпизодов проверяется в [test_generation.py](../tests/data/test_generation.py). |
-| E01 | Одна команда `bash scripts/verify.sh`, 106 тестов, код 0. [Прогон](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583) |
+| E01 | Одна команда `bash scripts/verify.sh`. Результат и число тестов приведены в задании `full`. |
 | E02 | [Dockerfile](../Dockerfile), файлы зависимостей и [параметры корпуса](../episodes/README.md). |
-| E03 | 1 225 закрытых шагов пяти политик, 101 запись метрик и train-демо. [Артефакты CI](https://github.com/reaxni/genesis_fintech/actions/runs/45021935583#artifacts) |
+| E03 | Траектории пяти политик, 101 запись метрик и train-демо в артефакте CI `genesis-verification`. |
 | E04 | Устранено ожидание принудительной остановки контейнера. Повторный прогон показал около 0.07 с вместо 10 с и код 0 у обоих сервисов. [Логи](https://github.com/reaxni/genesis_fintech/actions/runs/44897347712/job/136825788985) |
 | E05 | [Отчёт](ROLE_C_HANDOFF.md) связывает ограничения с открытым корпусом, oracle и замерами дедлайна. |
 

@@ -14,18 +14,22 @@ def _paid_invoice(h, amount, *, pieces=None):
 
 
 def _split(h):
-    invoice, _ = h.invoice(12_000_000, h.moment(1))
-    h.payment(5_000_000, h.moment(3), [invoice])
-    payment, group = h.payment(7_000_000, h.moment(5), [invoice])
+    invoice, _ = h.invoice(h.amount(12_000_000), h.moment(1))
+    h.payment(h.amount(5_000_000), h.moment(3), [invoice])
+    payment, group = h.payment(h.amount(7_000_000), h.moment(5), [invoice])
     return invoice, payment, group
 
 
-def _foreign(h, currency, amount, rate, wrong=None, moment=None):
+def _foreign(h, currency, amount, rate, wrong=None, moment=None, *, carrying=None):
     moment = moment or h.moment(14)
     h.rate(moment, currency, rate)
     if wrong is not None:
         h.rate(moment - timedelta(days=1), currency, wrong)
-    invoice, _ = h.invoice(h.convert(amount, currency, moment), moment)
+    issued_at = moment
+    if h.diverse:
+        issued_at -= timedelta(days=4)
+        h.rate(issued_at, currency, carrying or rate)
+    invoice, _ = h.invoice(h.convert(amount, currency, issued_at), issued_at)
     payment, group = h.payment(amount, moment, [invoice], currency=currency)
     return invoice, payment, group
 
@@ -42,39 +46,42 @@ def _cutoff(h, mutations, amount, *, latest=False, duplicate=False, utc_event=Fa
 def scenario(history, mutations, name):
     h = history
     if name == "D01":
-        _paid_invoice(h, 4_230_000)
+        _paid_invoice(h, h.amount(4_230_000))
     elif name == "D02":
         _split(h)
     elif name == "D03":
-        invoice, _ = h.invoice(1_200_000, h.moment(2))
-        h.payment(1_600_000, h.moment(4), [invoice], allocations=[1_200_000])
-        h.payment(400_000, h.moment(7), [invoice], refund=True)
+        invoice, _ = h.invoice(h.amount(1_200_000), h.moment(2))
+        h.payment(h.amount(1_600_000), h.moment(4), [invoice], allocations=[h.amount(1_200_000)])
+        h.payment(h.amount(400_000), h.moment(7), [invoice], refund=True)
     elif name == "D04":
         for _ in range(2):
-            _paid_invoice(h, 8_850_000)
+            _paid_invoice(h, h.amount(8_850_000))
     elif name == "D05":
-        _foreign(h, "USD", 20_000, "500.125", moment=utc(h.start))
+        _foreign(h, "USD", h.amount(20_000), "500.125", moment=utc(h.start))
     elif name in {"D06", "D07", "D08"}:
         params = {"D06": (1_000_000, None), "D07": (7_345_000, (3_000_000, 4_345_000)),
                   "D08": (1_825_000, None)}
         amount, pieces = params[name]
-        invoice, group = _paid_invoice(h, amount, pieces=pieces)
+        amount = h.amount(amount)
+        invoice, group = _paid_invoice(h, amount, pieces=tuple(map(h.amount, pieces)) if pieces else None)
         if name == "D08":
             _paid_invoice(h, amount)
         mutations.schedule(mutations.duplicate, invoice, group)
     elif name == "D09":
-        invoice, _ = h.invoice(3_100_000, h.moment(3))
-        payment, group = h.payment(3_100_000, h.moment(8), [invoice])
+        amount = h.amount(3_100_000)
+        invoice, _ = h.invoice(amount, h.moment(3))
+        payment, group = h.payment(amount, h.moment(8), [invoice])
         mutations.schedule(mutations.allocation, payment, group, invoice, 0)
     elif name == "D10":
         invoice, payment, group = _split(h)
-        mutations.schedule(mutations.allocation, payment, group, invoice, 2_000_000)
+        mutations.schedule(mutations.allocation, payment, group, invoice, h.amount(2_000_000))
     elif name == "D11":
-        first, _ = h.invoice(3_500_000, h.moment(6))
-        second, _ = h.invoice(2_000_000, h.moment(6), entity=first["entity_id"])
-        payment, group = h.payment(5_500_000, h.moment(8), [first, second],
-                                   allocations=[3_500_000, 2_000_000])
-        mutations.schedule(mutations.allocation, payment, group, first, 1_140_000)
+        first_amount, second_amount = map(h.amount, (3_500_000, 2_000_000))
+        first, _ = h.invoice(first_amount, h.moment(6))
+        second, _ = h.invoice(second_amount, h.moment(6), entity=first["entity_id"])
+        payment, group = h.payment(first_amount + second_amount, h.moment(8), [first, second],
+                                   allocations=[first_amount, second_amount])
+        mutations.schedule(mutations.allocation, payment, group, first, h.amount(1_140_000))
     elif name in {"D12", "D13", "D16", "D17", "D18"}:
         params = {
             "D12": ("USD", 10_000, "500", "490", None),
@@ -84,13 +91,26 @@ def scenario(history, mutations, name):
             "D18": ("USD", 6_000, "502", "497.50", 4_500),
         }
         currency, amount, correct, wrong, applied = params[name]
-        invoice, payment, group = _foreign(h, currency, amount, correct, wrong)
+        amount = h.amount(amount)
+        moment = carrying = None
+        if h.diverse:
+            moment = h.moment(h.rng.randrange(12, 20))
+            higher, carrying_rates = {
+                "USD": ("515", ("493", "509")),
+                "EUR": ("574", ("550", "569")),
+            }[currency]
+            wrong = h.rng.choice((wrong, higher))
+            carrying = h.rng.choice(carrying_rates)
+            _foreign(h, currency, amount, correct, moment=moment, carrying=carrying)
+        invoice, payment, group = _foreign(
+            h, currency, amount, correct, wrong, moment=moment, carrying=carrying,
+        )
         if applied is not None:
-            mutations.schedule(mutations.allocation, payment, group, invoice, applied)
+            mutations.schedule(mutations.allocation, payment, group, invoice, h.amount(applied))
         mutations.schedule(mutations.fx, payment, group, wrong)
     elif name in {"D14", "D15", "D19", "D20"}:
         params = {"D14": 6_700_000, "D15": 2_230_000, "D19": 12_000_000, "D20": 9_265_000}
-        _cutoff(h, mutations, params[name], latest=name == "D15",
+        _cutoff(h, mutations, h.amount(params[name]), latest=name == "D15",
                 duplicate=name in {"D19", "D20"}, utc_event=name in {"D15", "D20"})
 
 
@@ -131,9 +151,20 @@ def stress_scenario(h, mutations, name):
     midnight = utc(h.moment(25)).replace(hour=0) + timedelta(days=1)
     before = midnight - timedelta(minutes=2)
     after = midnight + timedelta(minutes=2)
-    h.rate(before - timedelta(days=1), "JPY", "3.02")
-    _foreign(h, "JPY", 20_000, "3.1234", moment=before)
-    _foreign(h, "JPY", 10_000, "3.1234", moment=after)
+    if h.diverse:
+        gain, loss = h.rng.sample((
+            ("JPY", "3.1234", "3.04", "3.21"),
+            ("USD", "501.25", "497", "507"),
+            ("EUR", "560.50", "556", "565"),
+        ), k=2)
+        currency, rate, lower, _ = gain
+        _foreign(h, currency, h.amount(20_000), rate, moment=before, carrying=lower)
+        currency, rate, _, higher = loss
+        _foreign(h, currency, h.amount(10_000), rate, moment=after, carrying=higher)
+    else:
+        h.rate(before - timedelta(days=1), "JPY", "3.02")
+        _foreign(h, "JPY", 20_000, "3.1234", moment=before)
+        _foreign(h, "JPY", 10_000, "3.1234", moment=after)
 
     scenario(h, mutations, name)
     number = int(name[1:])

@@ -1,1 +1,1 @@
-{"period_boundary":"[start,end)","fx_date_basis":"event_date_local","rounding":"HALF_EVEN"}
+{"period_boundary":"[start,end)","fx_date_basis":"event_date_local","rounding":"HALF_EVEN","fx_settlement_basis":"invoice_date_local"}

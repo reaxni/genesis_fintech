@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
 from random import Random
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ class History:
     seed: int
     timezone_name: str
     episode_id: str
+    diverse: bool = False
     invoices: list = field(default_factory=list)
     payments: list = field(default_factory=list)
     groups: dict = field(default_factory=dict)
@@ -25,8 +26,15 @@ class History:
     def __post_init__(self):
         self.rng = Random(self.seed)
         self.zone = ZoneInfo(self.timezone_name)
-        self.start = datetime(2026, 3, 1, tzinfo=self.zone)
-        self.end = datetime(2026, 4, 1, tzinfo=self.zone)
+        month_index = self.rng.randrange(36) if self.diverse else 14
+        year, month = divmod(month_index, 12)
+        next_year, next_month = divmod(month_index + 1, 12)
+        self.start = datetime(2025 + year, month + 1, 1, tzinfo=self.zone)
+        self.end = datetime(2025 + next_year, next_month + 1, 1, tzinfo=self.zone)
+        self.amount_percent = self.rng.randrange(65, 161) if self.diverse else 100
+
+    def amount(self, value):
+        return value * self.amount_percent // 100
 
     def identifier(self):
         return f"{self.rng.getrandbits(80):020x}"
@@ -43,8 +51,9 @@ class History:
             return amount
         day = moment.astimezone(self.zone).date().isoformat()
         rate = Decimal(self.rates[(day, currency)] if rate is None else rate)
-        value = Decimal(amount) * rate * Decimal(10) ** (EXPONENTS[BASE] - EXPONENTS[currency])
-        return int(value.to_integral_value(rounding=ROUND_HALF_EVEN))
+        with localcontext(Context(prec=28, rounding=ROUND_HALF_EVEN)):
+            value = (Decimal(amount) * rate).scaleb(EXPONENTS[BASE] - EXPONENTS[currency])
+            return int(value.to_integral_value())
 
     def row(self, group, moment, entity_id, account, *, debit=0, credit=0,
             invoice_id=None, payment_id=None, allocation=None, source=None):
@@ -83,6 +92,12 @@ class History:
         ]
         return document, group
 
+    def fx_adjustment(self, group, moment, entity, payment_id, difference):
+        return self.row(
+            group, moment, entity, "fx_gain" if difference > 0 else "fx_loss",
+            credit=max(0, difference), debit=max(0, -difference), payment_id=payment_id,
+        )
+
     def payment(self, amount, moment, invoices, *, currency=BASE, allocations=None, refund=False):
         entity = invoices[0]["entity_id"]
         refs = [invoice["invoice_id"] for invoice in invoices]
@@ -102,19 +117,27 @@ class History:
                 self.row(*args, "unapplied_cash", debit=bank_amount, invoice_id=refs[0], **kwargs),
             ]
         else:
-            rows = [self.row(*args, "cash", debit=bank_amount, **kwargs)]
-            for target in targets:
+            carrying = self.diverse and currency != BASE
+            rows = [self.row(*args, "cash", debit=bank_amount,
+                             source=(amount, currency) if carrying else None, **kwargs)]
+            allocated_at_event_rate = 0
+            for invoice, target in zip(invoices, targets):
                 part = target["amount_minor"]
+                allocated_at_event_rate += self.convert(part, currency, moment)
+                basis = datetime.fromisoformat(invoice["issued_at"]) if carrying else moment
                 rows.append(self.row(
-                    *args, "receivables", credit=self.convert(part, currency, moment),
+                    *args, "receivables", credit=self.convert(part, currency, basis),
                     invoice_id=target["invoice_id"], allocation=(part, currency),
-                    source=(part, currency) if currency != BASE else None, **kwargs,
+                    source=(part, currency) if currency != BASE and not carrying else None, **kwargs,
                 ))
-            residual = bank_amount - sum(row["credit_minor"] for row in rows)
+            residual = bank_amount - allocated_at_event_rate
             if residual:
                 rows.append(self.row(
                     *args, "unapplied_cash", credit=residual, invoice_id=refs[0], **kwargs,
                 ))
+            difference = bank_amount - sum(row["credit_minor"] for row in rows)
+            if carrying and difference:
+                rows.append(self.fx_adjustment(group, moment, entity, payment_id, difference))
         doc = {
             "doc_id": self.identifier(), "payment_id": payment_id,
             "timestamp": moment.isoformat(), "currency": currency,
@@ -151,7 +174,8 @@ class History:
                 "rounding": "HALF_EVEN", "currency_exponents": EXPONENTS,
             },
             "policy": {"period_boundary": "[start,end)", "fx_date_basis": "event_date_local",
-                       "rounding": "HALF_EVEN"},
+                       "rounding": "HALF_EVEN",
+                       **({"fx_settlement_basis": "invoice_date_local"} if self.diverse else {})},
             "ledger": ledger, "invoices": self.invoices, "payments": self.payments,
             "fx": [
                 {"date": date, "source_currency": source, "target_currency": BASE, "rate": rate}

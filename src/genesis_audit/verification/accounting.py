@@ -3,7 +3,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
 from zoneinfo import ZoneInfo
 
 from genesis_audit.contracts.v1 import EVIDENCE_LIMIT, SCHEMA_VERSION, fx_evidence_id
@@ -58,6 +58,9 @@ class Accounting:
         _require((policy["period_boundary"], policy["fx_date_basis"], policy["rounding"])
                  == ("[start,end)", "event_date_local", "HALF_EVEN"), "unsupported policy")
         _require(manifest["rounding"] == policy["rounding"], "rounding differs from policy")
+        settlement_basis = policy.get("fx_settlement_basis", "event_date_local")
+        _require(settlement_basis in ("event_date_local", "invoice_date_local"), "unsupported FX settlement basis")
+        self.carrying_value = settlement_basis == "invoice_date_local"
         _require(self.base in self.exponents and all(type(n) is int and 0 <= n <= 9
                  for n in self.exponents.values()), "invalid currency exponents")
         self.invoices = _unique(episode["invoices"], "invoice_id")
@@ -115,7 +118,8 @@ class Accounting:
                 authorized_surplus[refs[0]] += self.convert(amount - intended_total,
                                                            payment["currency"], moment)[0]
                 for ref, allocation in intended.items():
-                    totals[ref] += self.convert(allocation["amount_minor"], payment["currency"], moment)[0]
+                    basis = _timestamp(self.invoices[ref]["issued_at"]) if self.carrying_value else moment
+                    totals[ref] += self.convert(allocation["amount_minor"], payment["currency"], basis)[0]
         _require(all(amount <= self.invoices[ref]["total_minor"] for ref, amount in totals.items()),
                  "intended allocations exceed the invoice total")
 
@@ -125,8 +129,9 @@ class Accounting:
         local_day = moment.astimezone(self.zone).date().isoformat()
         key = f"{local_day}:{source}:{self.base}"
         _require(key in self.quotes, f"missing public FX rate {key}")
-        value = Decimal(amount).scaleb(self.exponents[self.base] - self.exponents[source])
-        return int((value * self.quotes[key]).quantize(Decimal(1), rounding=ROUND_HALF_EVEN)), key
+        with localcontext(Context(prec=28, rounding=ROUND_HALF_EVEN)):
+            value = Decimal(amount).scaleb(self.exponents[self.base] - self.exponents[source])
+            return int((value * self.quotes[key]).quantize(Decimal(1))), key
 
     def inspect(self, ledger):
         rows = _unique(ledger, "row_id")
@@ -219,15 +224,25 @@ class Accounting:
         _require(all(r["entity_id"] == entity and (r["invoice_id"] is None or r["invoice_id"] in refs)
                      for r in group), "payment row has the wrong invoice or counterparty")
         cash = [r for r in group if r["account"] == "cash"]
-        expected, _ = self.convert(abs(amount), source, event)
-        _require(len(cash) == 1 and cash[0]["debit_minor"] - cash[0]["credit_minor"]
-                 == (expected if amount > 0 else -expected), "cash does not reconcile to payment")
+        expected, cash_quote = self.convert(abs(amount), source, event)
+        _require(len(cash) == 1, "payment needs one cash posting")
+        cash, = cash
+        cash_booked = cash["debit_minor"] - cash["credit_minor"]
+        carrying = self.carrying_value and source != self.base and amount > 0
+        source_amount = cash["fx_source_minor"], cash["fx_source_currency"]
+        if carrying:
+            _require(source_amount == (amount, source) and cash_booked > 0,
+                     "cash conversion lacks its original currency and amount")
+        else:
+            _require(source_amount == (None, None) and cash_booked == (expected if amount > 0 else -expected),
+                     "cash does not reconcile to payment")
         unapplied = [row for row in group if row["account"] == "unapplied_cash"]
         allocated = [row for row in group if row["account"] == "receivables"]
         adjustments = [row for row in group if row["account"] in ("fx_gain", "fx_loss")]
-        _require(len(cash) + len(unapplied) + len(allocated) + len(adjustments) == len(group)
+        _require(1 + len(unapplied) + len(allocated) + len(adjustments) == len(group)
+                 and cash["allocation_minor"] is None
                  and all(row["allocation_minor"] is None and row["fx_source_minor"] is None
-                         for row in cash + unapplied + adjustments),
+                         for row in unapplied + adjustments),
                  "unexpected account or allocation on payment")
         intended = {a["invoice_id"]: a["amount_minor"] for a in payment["intended_allocations"]}
         if amount < 0:
@@ -238,6 +253,9 @@ class Accounting:
         applied = defaultdict(int)
         allocated_at_rate = 0
         facts = []
+        if carrying and cash_booked != expected:
+            facts.append(_fact("fx_conversion", [cash["row_id"]], self.base,
+                               abs(expected - cash_booked), [cash["row_id"], cash_quote]))
         for row in allocated:
             invoice_id = row["invoice_id"]
             chunk = row["allocation_minor"]
@@ -247,7 +265,12 @@ class Accounting:
             applied[invoice_id] += chunk
             correct, quote = self.convert(chunk, source, event)
             allocated_at_rate += correct
-            if source != self.base:
+            if carrying:
+                issued = _timestamp(self.invoices[invoice_id]["issued_at"])
+                original, _ = self.convert(chunk, source, issued)
+                _require(row["credit_minor"] == original and row["fx_source_minor"] is None,
+                         "receivable does not clear at its historical carrying value")
+            elif source != self.base:
                 _require((row["fx_source_minor"], row["fx_source_currency"]) == (chunk, source),
                          "FX source does not match the allocation")
                 delta = abs(correct - row["credit_minor"])
@@ -261,7 +284,7 @@ class Accounting:
                  and all(row["credit_minor"] > 0 and row["invoice_id"] in refs for row in unapplied)
                  and sum(row["credit_minor"] for row in unapplied) == expected - allocated_at_rate,
                  "unapplied cash does not reconcile to the actual allocation")
-        delta = allocated_at_rate - sum(row["credit_minor"] for row in allocated)
+        delta = cash_booked - sum(row["credit_minor"] for row in allocated + unapplied)
         _require(sum(r["credit_minor"] - r["debit_minor"] for r in adjustments) == delta
                  and all((r["account"], bool(r["credit_minor"])) in
                          (("fx_gain", True), ("fx_loss", False)) for r in adjustments),

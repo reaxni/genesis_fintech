@@ -1,1 +1,1 @@
-{"schema_version":"1.0","generator_version":"1.0.0","seed":32004,"changes":[],"config":{"invoice_count":50,"timezone":"Asia/Almaty","scenario":"D04","errors":{}}}
+{"schema_version":"1.0","generator_version":"1.2.0","seed":32004,"changes":[],"config":{"invoice_count":50,"timezone":"America/St_Johns","scenario":"D04","errors":{},"profile":"diverse"}}
