@@ -2,7 +2,8 @@
 
 import tempfile
 import unittest
-from collections import Counter
+from collections import Counter, defaultdict
+from decimal import localcontext
 from pathlib import Path
 
 from genesis_audit.contracts.v1 import ISSUE_TYPES
@@ -84,6 +85,50 @@ class GenerationTests(unittest.TestCase):
             self.assertNotEqual(read_episode(first)["manifest"]["episode_id"],
                                 read_episode(second)["manifest"]["episode_id"])
 
+    def test_diverse_period_and_fault_amounts_vary_with_seed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = {"scenario": "D10", "profile": "diverse"}
+            periods, allocations = set(), set()
+            for seed in (42, 924, 3911, 123784):
+                generate_episode(seed, config, temp)
+                episode = read_episode(temp)
+                periods.add(episode["manifest"]["period_start"])
+                allocations.add(tuple(sorted(f.amount for f in verify_episode(temp)
+                                             if f.kind == "payment_allocation")))
+            self.assertGreater(len(periods), 1)
+            self.assertGreater(len(allocations), 1)
+
+    def test_fx_generation_and_verification_ignore_decimal_context(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first, second = Path(temp) / "ordinary", Path(temp) / "low-precision"
+            config = {"scenario": "D16", "profile": "diverse"}
+            generate_episode(337777, config, first)
+            expected = verify_episode(first)
+            with localcontext() as context:
+                context.prec = 4
+                generate_episode(337777, config, second)
+                self.assertEqual(verify_episode(second), expected)
+            self.assertEqual(files(first), files(second))
+
+    def test_realized_fx_adjustments_are_not_evidence_of_conversion_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            generate_episode(301, {"scenario": "D13", "profile": "diverse"}, temp)
+            episode = read_episode(temp)
+            fx_fault, = (f for f in verify_episode(temp) if f.kind == "fx_conversion")
+            groups = defaultdict(list)
+            for row in episode["ledger"]:
+                groups[row["posting_group_id"]].append(row)
+            bad_row = next(r for r in episode["ledger"] if r["row_id"] in fx_fault.affected)
+            peers = [rows for rows in groups.values()
+                     if any(row["event_at"] == bad_row["event_at"]
+                            and row["fx_source_currency"] == bad_row["fx_source_currency"]
+                            and row["fx_source_minor"] == bad_row["fx_source_minor"]
+                            and row["row_id"] not in fx_fault.affected for row in rows)]
+            clean_twin, = peers
+            self.assertTrue(any(row["account"] in ("fx_gain", "fx_loss") for row in clean_twin))
+            self.assertEqual({row["account"] for row in episode["ledger"]} & {"fx_gain", "fx_loss"},
+                             {"fx_gain", "fx_loss"})
+
     def test_committed_corpus_rebuild_is_identical(self):
         published = Path(__file__).resolve().parents[2] / "episodes"
         with tempfile.TemporaryDirectory() as temp:
@@ -98,17 +143,19 @@ class GenerationTests(unittest.TestCase):
                     ids.append(episode["manifest"]["episode_id"])
             self.assertEqual(len(set(ids)), 20)
 
-    def test_stress_cases_keep_proofs_and_clean_controls(self):
+    def test_diverse_corpus_keeps_proofs_and_clean_controls(self):
         published = Path(__file__).resolve().parents[2] / "episodes"
-        stress_sizes = []
+        sizes, periods, timezones = [], set(), set()
         for manifest in sorted(published.glob("*/*/manifest.json")):
             episode = read_episode(manifest.parent)
             config = episode["provenance"]["config"]
-            if config.get("profile") != "stress":
-                continue
             with self.subTest(scenario=config["scenario"]):
+                self.assertEqual(config["profile"], "diverse")
                 facts = verify_episode(manifest.parent)
-                stress_sizes.append(episode["manifest"]["row_count"])
+                episode_manifest = episode["manifest"]
+                sizes.append(episode_manifest["row_count"])
+                timezones.add(episode_manifest["timezone"])
+                periods.add(episode_manifest["period_start"][:7])
                 self.assertLessEqual(episode["manifest"]["document_count"], 200)
                 self.assertGreaterEqual(sum(p["amount_minor"] < 0 for p in episode["payments"]), 2)
                 installments = Counter(a["invoice_id"] for p in episode["payments"]
@@ -120,5 +167,7 @@ class GenerationTests(unittest.TestCase):
                     self.assertIn(len(facts), range(3, 6))
                     self.assertTrue(any(f.kind == "duplicate_invoice" and len(f.affected) == 4
                                         for f in facts))
-        self.assertEqual(len(stress_sizes), 10)
-        self.assertGreater(max(stress_sizes) - min(stress_sizes), 100)
+        self.assertEqual(len(sizes), 20)
+        self.assertGreater(max(sizes) - min(sizes), 100)
+        self.assertEqual(len(timezones), 5)
+        self.assertGreater(len(periods), 10)

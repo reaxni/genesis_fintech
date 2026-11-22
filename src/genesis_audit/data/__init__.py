@@ -7,8 +7,8 @@ Config keys:
       errors or scenario. Scenarios D16–D20 cover errors sharing one event.
   invoice_count: number of ordinary background invoices, 50 through 80.
   timezone: IANA reporting timezone, default Asia/Almaty.
-  profile: omit for the original fixtures, or "stress" with a D01–D20 scenario.
-      Stress adds clean controls and variations of the same G0 issue types.
+  profile: omit for the original fixtures. "stress" and "diverse" require a D01-D20 scenario.
+      Diverse adds seeded dates, amounts and settlement at the invoice carrying value.
 """
 
 from hashlib import sha256
@@ -24,7 +24,7 @@ from .scenarios import SCENARIOS, faults, scenario, stress_scenario
 
 __all__ = ["generate_episode"]
 VERSION = "1.0.0"
-STRESS_VERSION = "1.1.0"
+PROFILE_VERSIONS = {"stress": "1.1.0", "diverse": "1.2.0"}
 
 
 def _settings(config):
@@ -39,8 +39,9 @@ def _settings(config):
     name = config.get("scenario")
     if name is not None and (name not in SCENARIOS or "errors" in config):
         raise ValueError("scenario must be D01 through D20 and excludes errors")
-    if "profile" in config and (config["profile"] != "stress" or name is None):
-        raise ValueError('profile must be "stress" and requires a scenario')
+    profile = config.get("profile")
+    if "profile" in config and (profile not in ("stress", "diverse") or name is None):
+        raise ValueError('profile must be "stress" or "diverse" and requires a scenario')
     timezone = config.get("timezone", "Asia/Almaty")
     if not isinstance(timezone, str):
         raise ValueError("timezone must be an IANA timezone name")
@@ -63,17 +64,17 @@ def generate_episode(seed: int, config: dict, output_dir: str) -> None:
     if type(seed) is not int:
         raise TypeError("seed must be an integer")
     settings = _settings(config)
-    stress = settings.get("profile") == "stress"
-    version = STRESS_VERSION if stress else VERSION
+    profile = settings.get("profile")
+    version = PROFILE_VERSIONS.get(profile, VERSION)
     identity = json.dumps([version, seed, settings], sort_keys=True).encode()
     episode_id = sha256(identity).hexdigest()[:20]
     try:
-        history = History(seed, settings["timezone"], episode_id)
+        history = History(seed, settings["timezone"], episode_id, diverse=profile == "diverse")
     except ZoneInfoNotFoundError as error:
         raise ValueError("unknown IANA timezone") from error
-    history.background(settings["invoice_count"], detailed=stress)
+    history.background(settings["invoice_count"], detailed=profile is not None)
     changes = Mutations(history)
-    if stress:
+    if profile:
         stress_scenario(history, changes, settings["scenario"])
     elif settings["scenario"]:
         scenario(history, changes, settings["scenario"])

@@ -21,14 +21,16 @@ def semantic_signature(facts, inverse):
     )
 
 
-PAIRS = [(number, False) for number in range(1, 21)] + [(6, True), (18, True), (19, True)]
+PAIRS = [(number, None) for number in range(1, 21)] + [
+    (6, "stress"), (18, "diverse"), (19, "diverse"),
+]
 
 
-def build_pair(path, number, stress=False):
+def build_pair(path, number, profile=None):
     source, target = path / "source", path / "transformed"
     config = {"scenario": f"D{number:02d}"}
-    if stress:
-        config["profile"] = "stress"
+    if profile:
+        config["profile"] = profile
     generate_episode(500 + number, config, source)
     inverse = transform_episode(source, target, seed=16 + number,
                                 shuffle=number <= 5 or number >= 11, rename_ids=number >= 6)
