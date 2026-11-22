@@ -251,8 +251,7 @@ class AuditEnv:
     def _submit(self, episode: EpisodeIndex, args: Any) -> StepResult:
         payload = args.get("findings") if isinstance(args, dict) else None
         try:
-            # Strict JSON copy first: the IPC reader accepts NaN/Infinity, which
-            # are not valid findings and must not crash the environment.
+            # Direct reset/step callers can bypass IPC. Enforce strict JSON here too.
             findings = _public(payload) if payload is not None else None
         except (TypeError, ValueError, RecursionError):
             findings = None

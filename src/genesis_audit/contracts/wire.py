@@ -1,10 +1,22 @@
 """Bounded JSON Lines exchange on a private local socket."""
 
 import json
+from math import isfinite
 from socket import socket
 from typing import BinaryIO
 
 MAX_MESSAGE_BYTES = 1024 * 1024
+
+
+def _reject_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not isfinite(number):
+        _reject_constant(value)
+    return number
 
 
 def send(connection: socket, message: dict) -> None:
@@ -20,7 +32,7 @@ def receive(reader: BinaryIO) -> dict:
         raise EOFError("IPC session ended")
     if len(line) > MAX_MESSAGE_BYTES + 1 or not line.endswith(b"\n"):
         raise ValueError("invalid IPC frame")
-    message = json.loads(line)
+    message = json.loads(line, parse_constant=_reject_constant, parse_float=_finite_float)
     if not isinstance(message, dict):
         raise ValueError("IPC frame must contain an object")
     return message

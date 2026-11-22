@@ -113,3 +113,39 @@ def faults(history, mutations, counts):
                 mutations.schedule(mutations.fx, payment, group, "499.25")
             elif kind == "period_cutoff":
                 _cutoff(h, mutations, h.rng.randrange(50_000, 2_000_000), latest=bool(index % 2))
+
+
+def stress_scenario(h, mutations, name):
+    # Two independent obligations can legitimately have the same total.
+    for _ in range(2):
+        _paid_invoice(h, 8_850_000)
+    invoice, _ = h.invoice(1_200_000, h.moment(1))
+    for day, installment in enumerate((100_000, 200_000, 400_000, 500_000), start=3):
+        h.payment(installment, h.moment(day), [invoice])
+
+    invoice, _ = h.invoice(1_200_000, h.moment(2))
+    h.payment(1_800_000, h.moment(4), [invoice], allocations=[1_200_000])
+    h.payment(200_000, h.moment(7), [invoice], refund=True)
+    h.payment(150_000, h.moment(11), [invoice], refund=True)
+
+    midnight = utc(h.moment(25)).replace(hour=0) + timedelta(days=1)
+    before = midnight - timedelta(minutes=2)
+    after = midnight + timedelta(minutes=2)
+    h.rate(before - timedelta(days=1), "JPY", "3.02")
+    _foreign(h, "JPY", 20_000, "3.1234", moment=before)
+    _foreign(h, "JPY", 10_000, "3.1234", moment=after)
+
+    scenario(h, mutations, name)
+    number = int(name[1:])
+    if number <= 5:
+        return
+    # The same invoice is posted again. Its revenue is split into service lines
+    # on the second posting, but the net amount and original invoice match.
+    amount = h.rng.randrange(60_000, 1_800_000)
+    first = amount // 3
+    invoice, group = _paid_invoice(h, amount, pieces=(first, amount - first))
+    mutations.schedule(mutations.duplicate, invoice, group, True)
+    original_count = 2 if number >= 16 else 1
+    extra = 3 + (number - 6) % 3 - original_count - 1
+    for kind in ("payment_allocation", "period_cutoff", "duplicate_invoice")[:extra]:
+        faults(h, mutations, {kind: 1})

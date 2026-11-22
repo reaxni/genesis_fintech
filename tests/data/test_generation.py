@@ -97,3 +97,28 @@ class GenerationTests(unittest.TestCase):
                     episode = read_episode(path.parent)
                     ids.append(episode["manifest"]["episode_id"])
             self.assertEqual(len(set(ids)), 20)
+
+    def test_stress_cases_keep_proofs_and_clean_controls(self):
+        published = Path(__file__).resolve().parents[2] / "episodes"
+        stress_sizes = []
+        for manifest in sorted(published.glob("*/*/manifest.json")):
+            episode = read_episode(manifest.parent)
+            config = episode["provenance"]["config"]
+            if config.get("profile") != "stress":
+                continue
+            with self.subTest(scenario=config["scenario"]):
+                facts = verify_episode(manifest.parent)
+                stress_sizes.append(episode["manifest"]["row_count"])
+                self.assertLessEqual(episode["manifest"]["document_count"], 200)
+                self.assertGreaterEqual(sum(p["amount_minor"] < 0 for p in episode["payments"]), 2)
+                installments = Counter(a["invoice_id"] for p in episode["payments"]
+                                       for a in p["intended_allocations"])
+                self.assertGreaterEqual(max(installments.values()), 4)
+                if int(config["scenario"][1:]) <= 5:
+                    self.assertFalse(facts)
+                else:
+                    self.assertIn(len(facts), range(3, 6))
+                    self.assertTrue(any(f.kind == "duplicate_invoice" and len(f.affected) == 4
+                                        for f in facts))
+        self.assertEqual(len(stress_sizes), 10)
+        self.assertGreater(max(stress_sizes) - min(stress_sizes), 100)

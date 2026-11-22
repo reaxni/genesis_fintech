@@ -21,9 +21,15 @@ def semantic_signature(facts, inverse):
     )
 
 
-def build_pair(path, number):
+PAIRS = [(number, False) for number in range(1, 21)] + [(6, True), (18, True), (19, True)]
+
+
+def build_pair(path, number, stress=False):
     source, target = path / "source", path / "transformed"
-    generate_episode(500 + number, {"scenario": f"D{number:02d}"}, source)
+    config = {"scenario": f"D{number:02d}"}
+    if stress:
+        config["profile"] = "stress"
+    generate_episode(500 + number, config, source)
     inverse = transform_episode(source, target, seed=16 + number,
                                 shuffle=number <= 5 or number >= 11, rename_ids=number >= 6)
     return source, target, inverse
@@ -32,9 +38,9 @@ def build_pair(path, number):
 class VerificationTests(unittest.TestCase):
     def test_p01_to_p20_preserve_semantics_and_nested_order(self):
         with tempfile.TemporaryDirectory() as temp:
-            for number in range(1, 21):
-                with self.subTest(pair=f"P{number:02d}"):
-                    source, target, inverse = build_pair(Path(temp), number)
+            for number, stress in PAIRS:
+                with self.subTest(pair=f"P{number:02d}", stress=stress):
+                    source, target, inverse = build_pair(Path(temp), number, stress)
                     old, new = read_episode(source), read_episode(target)
                     self.assertEqual(semantic_signature(verify_episode(source), {}),
                                      semantic_signature(verify_episode(target), inverse))
@@ -116,9 +122,9 @@ class PairedEnvironmentTests(unittest.TestCase):
             )
 
         with tempfile.TemporaryDirectory() as temp:
-            for number in range(1, 21):
-                with self.subTest(pair=f"P{number:02d}"):
-                    source, target, inverse = build_pair(Path(temp), number)
+            for number, stress in PAIRS:
+                with self.subTest(pair=f"P{number:02d}", stress=stress):
+                    source, target, inverse = build_pair(Path(temp), number, stress)
                     observations, payload, score = run(source)
                     paired, paired_payload, paired_score = run(target)
                     self.assertEqual(observations, run(source)[0])

@@ -59,10 +59,11 @@ class History:
             "fx_source_minor": fx_source_minor, "fx_source_currency": fx_source_currency,
         }
 
-    def invoice(self, amount, moment, *, entity=None, pieces=None):
+    def invoice(self, amount, moment, *, entity=None, pieces=None, split_revenue=False):
         entity = entity or self.identifier()
         invoice_id = self.identifier()
         group = self.identifier()
+        parts = pieces or (amount,)
         document = {
             "doc_id": self.identifier(), "invoice_id": invoice_id, "entity_id": entity,
             "source_reference": self.identifier(),
@@ -71,13 +72,14 @@ class History:
             "currency": BASE, "total_minor": amount,
             "line_items": [
                 {"description": f"Services {i}", "amount_minor": part}
-                for i, part in enumerate(pieces or (amount,), 1)
+                for i, part in enumerate(parts, 1)
             ],
         }
         self.invoices.append(document)
         self.groups[group] = [
             self.row(group, moment, entity, "receivables", debit=amount, invoice_id=invoice_id),
-            self.row(group, moment, entity, "revenue", credit=amount, invoice_id=invoice_id),
+            *(self.row(group, moment, entity, "revenue", credit=part, invoice_id=invoice_id)
+              for part in (parts if split_revenue else (amount,))),
         ]
         return document, group
 
@@ -123,11 +125,17 @@ class History:
         self.groups[group] = rows
         return doc, group
 
-    def background(self, count):
-        for _ in range(count):
+    def background(self, count, *, detailed=False):
+        for index in range(count):
             amount = self.rng.randrange(40_000, 2_500_000)
             date = self.moment(self.rng.randrange(2, 24))
-            invoice, _ = self.invoice(amount, date)
+            if detailed and index % 3 == 0:
+                count_parts = 2 + index % 5
+                part, remainder = divmod(amount, count_parts)
+                pieces = [part] * (count_parts - 1) + [part + remainder]
+                invoice, _ = self.invoice(amount, date, pieces=pieces, split_revenue=True)
+            else:
+                invoice, _ = self.invoice(amount, date)
             self.payment(amount, date + timedelta(days=2), [invoice])
 
     def records(self, issues, changes, generator_version):

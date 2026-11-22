@@ -37,8 +37,9 @@ echo "== build"
 dc build >/dev/null
 
 echo "== unit/contract/integration suites inside the Linux verify container"
-dc run --rm --no-deps -T --pull never -e GENESIS_FULL_CHECKS=1 verify bash -ceu '
-    python --version; uname -sm
+dc run --rm --no-deps -T --pull never -e GENESIS_FULL_CHECKS=1 verify bash -euo pipefail -c '
+    python --version
+    uname -sm
     for s in contract_g0 scoring integration contract; do
         echo "-- tests/$s"; python -m unittest discover -s "tests/$s" 2>&1 | tail -1
     done' | tee "$out/suites.txt"
@@ -79,7 +80,7 @@ for sc in ("hang", "slow"):
     assert 59.9 <= r["elapsed_seconds"] <= 61, r
     print(f"C18 {sc}: truncated after {r['elapsed_seconds']:.2f}s, steps={r['steps']}, findings empty")
 rewards = [json.loads(l)["reward"] for l in open(f"{out}/trajectories.jsonl")]
-assert all(x == 0 for x in rewards)
+assert rewards and all(type(x) in (int, float) and x == 0 for x in rewards)
 agg = defaultdict(list)
 for row in map(json.loads, open(f"{out}/metrics.jsonl")):
     agg[(row["policy"], row.get("mode", "closed"))].append(row["return"])

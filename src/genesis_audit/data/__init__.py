@@ -7,6 +7,8 @@ Config keys:
       errors or scenario. Scenarios D16–D20 cover errors sharing one event.
   invoice_count: number of ordinary background invoices, 50 through 80.
   timezone: IANA reporting timezone, default Asia/Almaty.
+  profile: omit for the original fixtures, or "stress" with a D01–D20 scenario.
+      Stress adds clean controls and variations of the same G0 issue types.
 """
 
 from hashlib import sha256
@@ -18,16 +20,17 @@ from genesis_audit.contracts.v1 import ISSUE_TYPES
 from .export import write_episode
 from .history import History
 from .mutations import Mutations
-from .scenarios import SCENARIOS, faults, scenario
+from .scenarios import SCENARIOS, faults, scenario, stress_scenario
 
 __all__ = ["generate_episode"]
 VERSION = "1.0.0"
+STRESS_VERSION = "1.1.0"
 
 
 def _settings(config):
     if not isinstance(config, dict):
         raise TypeError("generator config must be a dict")
-    unknown = config.keys() - {"scenario", "errors", "invoice_count", "timezone"}
+    unknown = config.keys() - {"scenario", "errors", "invoice_count", "timezone", "profile"}
     if unknown:
         raise ValueError(f"unknown generator config keys: {sorted(unknown)}")
     count = config.get("invoice_count", 50)
@@ -36,6 +39,8 @@ def _settings(config):
     name = config.get("scenario")
     if name is not None and (name not in SCENARIOS or "errors" in config):
         raise ValueError("scenario must be D01 through D20 and excludes errors")
+    if "profile" in config and (config["profile"] != "stress" or name is None):
+        raise ValueError('profile must be "stress" and requires a scenario')
     timezone = config.get("timezone", "Asia/Almaty")
     if not isinstance(timezone, str):
         raise ValueError("timezone must be an IANA timezone name")
@@ -48,26 +53,33 @@ def _settings(config):
     ) or sum(errors.values()) > 12:
         raise ValueError("errors must use contract issue types and contain at most 12 faults")
     counts = {kind: errors[kind] for kind in ISSUE_TYPES if errors.get(kind, 0)}
-    return {"invoice_count": count, "timezone": timezone, "scenario": name, "errors": counts}
+    settings = {"invoice_count": count, "timezone": timezone, "scenario": name, "errors": counts}
+    if "profile" in config:
+        settings["profile"] = config["profile"]
+    return settings
 
 
 def generate_episode(seed: int, config: dict, output_dir: str) -> None:
     if type(seed) is not int:
         raise TypeError("seed must be an integer")
     settings = _settings(config)
-    identity = json.dumps([VERSION, seed, settings], sort_keys=True).encode()
+    stress = settings.get("profile") == "stress"
+    version = STRESS_VERSION if stress else VERSION
+    identity = json.dumps([version, seed, settings], sort_keys=True).encode()
     episode_id = sha256(identity).hexdigest()[:20]
     try:
         history = History(seed, settings["timezone"], episode_id)
     except ZoneInfoNotFoundError as error:
         raise ValueError("unknown IANA timezone") from error
-    history.background(settings["invoice_count"])
+    history.background(settings["invoice_count"], detailed=stress)
     changes = Mutations(history)
-    if settings["scenario"]:
+    if stress:
+        stress_scenario(history, changes, settings["scenario"])
+    elif settings["scenario"]:
         scenario(history, changes, settings["scenario"])
     else:
         faults(history, changes, settings["errors"])
     changes.commit()
-    records = history.records(changes.issues, changes.changes, VERSION)
+    records = history.records(changes.issues, changes.changes, version)
     records["provenance"]["config"] = settings
     write_episode(output_dir, records)
