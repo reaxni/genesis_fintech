@@ -1,13 +1,14 @@
 """Role B scripted policies.
 
 Entry point (G0): choose_action(policy_name, observation, history, *, rng).
-Names: "random", "reconciliation", "mark_all". Each returns one public
+Names: "random", "reconciliation", "reconciliation_aggregate", "mark_all". Each returns one public
 step action {"name", "args"}. Runs in the isolated policy container, so it
 imports only the standard library and genesis_audit.contracts.v1.
 """
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, List
 
 from genesis_audit.contracts.v1 import JSONDict
@@ -17,6 +18,7 @@ from . import mark_all, random_policy, reconciliation
 POLICIES = {
     "random": random_policy.choose,
     "reconciliation": reconciliation.choose,
+    "reconciliation_aggregate": partial(reconciliation.choose, enhanced=True),
     "mark_all": mark_all.choose,
 }
 
