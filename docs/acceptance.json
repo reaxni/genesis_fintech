@@ -468,7 +468,7 @@
             "selectors": []
           }
         ],
-        "result": "В Linux-контейнере задержка политики вызвала truncation через 60.03 с (зависшая политика) и 60.01 с (медленная), оба итоговых списка пусты."
+        "result": "Зависшая и медленная политики прерваны через 60,03 и 60,00 с с пустыми итоговыми списками."
       }
     },
     {
@@ -498,7 +498,7 @@
             "selectors": []
           }
         ],
-        "result": "Unit-тест проверил нулевую награду и закрытый итог. В 872 шагах closed-прогона награда численно равна 0."
+        "result": "Во всех 1 225 шагах closed-прогона публичная награда численно равна 0."
       }
     },
     {
@@ -2141,7 +2141,7 @@
             "selectors": []
           }
         ],
-        "result": "Один запуск из чистого клона дал код 0 и 102 успешных теста."
+        "result": "Один запуск на Ubuntu дал код 0 и 106 успешных тестов."
       }
     },
     {
@@ -2212,7 +2212,7 @@
             ]
           }
         ],
-        "result": "Четыре политики, 872 закрытых шага, 81 запись метрик и train-демо. Ревью проверило отсутствие закрытых полей в наблюдениях."
+        "result": "Пять политик, 1 225 закрытых шагов, 101 запись метрик и train-демо."
       }
     },
     {
@@ -2226,7 +2226,8 @@
       "planned_test": "docs/ROLE_C_HANDOFF.md",
       "evidence": {
         "runs": [
-          "ci"
+          "ci",
+          "historical_shutdown"
         ],
         "references": [
           {
@@ -2272,9 +2273,9 @@
     "ci": {
       "command": "bash scripts/verify.sh",
       "version": "Python 3.11.11 в Docker, GitHub Actions Ubuntu x86_64",
-      "commit": "2cf936ed54bc6c66f89c27bc70a927c0953faa74",
-      "report": "https://github.com/reaxni/genesis_fintech/actions/runs/44897347712",
-      "result": "102 теста, 80 прогонов closed, train-демо, код выхода 0"
+      "commit": "1777be79e3ac08110e7bdbf718b45714a7b41520",
+      "report": "https://github.com/reaxni/genesis_fintech/actions/runs/45021935583",
+      "result": "106 тестов, 100 закрытых прогонов и train-демо, код выхода 0"
     },
     "clean_clone": {
       "command": "bash scripts/verify.sh",
@@ -2285,10 +2286,17 @@
     },
     "isolation": {
       "command": "bash sandbox/run_isolation_checks.sh",
-      "version": "Docker Desktop 29.7.2, Compose v5.5.1, Linux arm64",
+      "version": "GitHub Actions Ubuntu x86_64, Python 3.11.11 в Docker",
+      "commit": "1777be79e3ac08110e7bdbf718b45714a7b41520",
+      "report": "https://github.com/reaxni/genesis_fintech/actions/runs/45021935583/job/137206618250",
+      "result": "Реальный дедлайн, 1 225 нулевых наград в closed и отдельный контейнер политики"
+    },
+    "historical_shutdown": {
+      "command": "bash scripts/verify.sh",
+      "version": "Python 3.11.11 в Docker, GitHub Actions Ubuntu x86_64",
       "commit": "2cf936ed54bc6c66f89c27bc70a927c0953faa74",
-      "report": "https://github.com/reaxni/genesis_fintech/pull/5",
-      "result": "Ревью роли B: реальный дедлайн, нулевая награда в closed и отдельный контейнер политики"
+      "report": "https://github.com/reaxni/genesis_fintech/actions/runs/44897347712/job/136825788985",
+      "result": "После исправления контейнер политики остановился примерно за 0,07 с вместо 10 с."
     }
   }
 }

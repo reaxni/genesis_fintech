@@ -1,3 +1,14 @@
 *.sh text eol=lf
 Dockerfile text eol=lf
 *.yaml text eol=lf
+
+# Exclude team planning from the submission archive.
+/.github export-ignore
+/AGENTS.md export-ignore
+/agent-config export-ignore
+/docs/START_AGENT.md export-ignore
+/docs/WORK_PLAN.md export-ignore
+/docs/TASKS.md export-ignore
+/docs/RETROSPECTIVE.md export-ignore
+/docs/SETUP_VALIDATION.md export-ignore
+/tools/validate_setup.py export-ignore

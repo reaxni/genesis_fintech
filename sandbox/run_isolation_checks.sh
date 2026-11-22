@@ -1,35 +1,25 @@
 #!/usr/bin/env bash
-# Linux/Docker acceptance for role B: C18 (real 60 s timeout) and C20
-# (policy container isolation), plus the full Compose verify run.
-#
-#   bash sandbox/run_isolation_checks.sh
-#
-# Needs role C's compose.yaml, Dockerfile, judge_adapter.py and runner
-# (PR 2) in the tree. Uses ./episodes if present (role A's corpus),
-# otherwise builds a temporary stand-in corpus from the G0 fixture.
-# Results go to artifacts/isolation/. Everything Compose created is removed.
+# Run the C18–C20 checks and write results to artifacts/isolation/.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 for f in compose.yaml Dockerfile judge_adapter.py src/genesis_audit/runner/session.py; do
-    [[ -f "$f" ]] || { echo "missing $f (role C, PR 2)" >&2; exit 2; }
+    [[ -f "$f" ]] || { echo "missing $f" >&2; exit 2; }
 done
 # Docker Desktop on macOS keeps its credential helper outside the default PATH
 [[ -d /Applications/Docker.app/Contents/Resources/bin ]] && export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
 
 project="genesis_b_iso_$$"
 out="artifacts/isolation"
-made_corpus=0
 dc() { docker compose --project-name "$project" "$@"; }
 cleanup() {
     docker rm -f "$project-c18-hang" "$project-c18-slow" >/dev/null 2>&1 || true
     dc down --volumes --rmi local >/dev/null 2>&1 || true
-    if [[ "$made_corpus" == 1 ]]; then rm -rf episodes; fi
 }
 trap cleanup EXIT
 
-if [[ ! -d episodes ]]; then
-    python3 sandbox/make_fixture_corpus.py episodes
-    made_corpus=1
+if [[ ! -d episodes/train || ! -d episodes/dev ]]; then
+    echo "Missing published train or dev corpus in episodes/" >&2
+    exit 2
 fi
 mkdir -p "$out"
 
