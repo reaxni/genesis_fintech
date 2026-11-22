@@ -26,6 +26,12 @@ from genesis_audit.contracts.v1 import EVIDENCE_LIMIT, JSONDict
 from .common import Crawl, episode_id, initial_observation, remaining_steps, submit
 
 ROUNDING = {"HALF_EVEN": ROUND_HALF_EVEN, "HALF_UP": ROUND_HALF_UP}
+DEMO_PAGE_BUDGET = 10
+DEMO_ORDERS = {
+    "ledger_docs": ("ledger", "invoices", "payments", "fx"),
+    "ledger_invoices_fx": ("ledger", "invoices", "fx", "payments"),
+    "ledger_fx": ("ledger", "fx", "invoices", "payments"),
+}
 
 
 def choose(observation: JSONDict, history: List[JSONDict], rng: Any, *, enhanced: bool = False) -> JSONDict:
@@ -43,6 +49,30 @@ def choose(observation: JSONDict, history: List[JSONDict], rng: Any, *, enhanced
         aggregate_duplicates=enhanced,
     )
     return submit(episode, findings)
+
+
+def choose_budgeted(observation, history, _rng, *, order):
+    crawl = Crawl(observation, history)
+    nxt = crawl.next_action(order)
+    if nxt is not None and len(history) < DEMO_PAGE_BUDGET and remaining_steps(observation) > 1:
+        return nxt
+
+    # Partial tables cannot support a complete comparison.
+    complete = {name: rows for name, rows in crawl.records.items()
+                if crawl.finished[name] and name not in crawl.failed}
+    first = initial_observation(observation, history)
+    findings = []
+    if "ledger" in complete:
+        ledger = complete["ledger"]
+        findings += period_cutoff(ledger, first["manifest"])
+        if "fx" in complete:
+            findings += fx_conversion(ledger, complete["fx"], first["manifest"], first["policy"])
+        if "invoices" in complete:
+            invoices = complete["invoices"]
+            findings += duplicate_invoice(ledger, invoices, aggregate=True)
+            if "payments" in complete:
+                findings += payment_allocation(ledger, invoices, complete["payments"])
+    return submit(episode_id(observation, history), findings)
 
 
 # ---------------------------------------------------------------- analysis

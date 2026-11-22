@@ -49,6 +49,15 @@ jobs:
           path: ${{ runner.temp }}/genesis-submission/
           include-hidden-files: true
           if-no-files-found: error
+  arm64:
+    if: github.event_name != 'workflow_dispatch' || inputs.full
+    needs: bootstrap
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/verify.sh
+      - run: bash sandbox/run_isolation_checks.sh
   isolation:
     if: github.event_name != 'workflow_dispatch' || inputs.full
     needs: bootstrap

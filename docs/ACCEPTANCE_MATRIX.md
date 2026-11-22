@@ -3,6 +3,7 @@
 
 - `bash scripts/verify.sh` на Ubuntu x86_64 с Docker и Python 3.11.11. Задание CI `full`.
 - `bash sandbox/run_isolation_checks.sh` на Ubuntu x86_64. Задание CI `isolation` для C18–C20.
+- Задание CI `arm64` повторяет полный прогон и проверку изоляции на Ubuntu arm64.
 C/D/R/P: по 20 pass/fail; E: 5 критериев по 0/1/2. Дополнительные M01–M12 из первоисточника нужны для точности matcher и не добавляют пунктов к 85.
 Полный контекст фикстур: docs/sources/check_definitions_2026-11-20.txt. В R по умолчанию inspection_steps=10, сумма 10000, tau=0. Submit не входит в inspection_steps.
 

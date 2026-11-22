@@ -22,12 +22,16 @@ POLICIES = {
     "mark_all": mark_all.choose,
 }
 
+DEMO_PLANS = {
+    name: partial(reconciliation.choose_budgeted, order=order)
+    for name, order in reconciliation.DEMO_ORDERS.items()
+}
+
 __all__ = ["choose_action", "POLICIES"]
 
 
 def choose_action(policy_name: str, observation: JSONDict, history: List[JSONDict], *, rng: Any) -> JSONDict:
-    try:
-        policy = POLICIES[policy_name]
-    except KeyError:
-        raise ValueError(f"unknown policy {policy_name!r}; expected one of {sorted(POLICIES)}") from None
+    policy = POLICIES.get(policy_name) or DEMO_PLANS.get(policy_name)
+    if policy is None:
+        raise ValueError(f"unknown policy {policy_name!r}; expected one of {sorted(POLICIES | DEMO_PLANS)}")
     return policy(observation, history, rng)

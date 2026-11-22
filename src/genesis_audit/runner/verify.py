@@ -1,4 +1,4 @@
-"""Trusted CLI for the open release corpus and one train demo."""
+"""Trusted CLI for the release corpus, train trace and held-out review demo."""
 
 import argparse
 import json
@@ -10,6 +10,7 @@ from genesis_audit.contracts.files import read_json
 
 from .oracle import oracle_findings
 from .remote_policy import PolicyListener
+from .review_demo import run_review_demo
 from .session import run_episode
 
 POLICIES = ("random", "reconciliation", "mark_all", "reconciliation_aggregate")
@@ -43,6 +44,7 @@ def verify(episodes: Path, output: Path, socket_path: Path) -> None:
         (output / "trajectories.jsonl").open("w", encoding="utf-8") as trajectory,
         (output / "metrics.jsonl").open("w", encoding="utf-8") as metrics,
         (output / "train_demo.jsonl").open("w", encoding="utf-8") as demo,
+        (output / "review_demo.jsonl").open("w", encoding="utf-8") as review,
     ):
         for episode in release_corpus:
             # Oracle stays in this process and submits through the same contract.
@@ -82,6 +84,7 @@ def verify(episodes: Path, output: Path, socket_path: Path) -> None:
         write_line(metrics, {"policy": "reconciliation", "mode": "train", **result})
         if result["timed_out"]:
             raise TimeoutError("train demo exceeded the episode deadline")
+        review_results = run_review_demo(listener, lambda row: write_line(review, row), ids)
 
     for policy, outcomes in results.items():
         correct = sum(outcome["tp"] or 0 for outcome in outcomes)
@@ -95,6 +98,11 @@ def verify(episodes: Path, output: Path, socket_path: Path) -> None:
               f"mean_inspections={mean_inspections:.2f}")
     print(f"Train demo: episode={result['episode_id']}, steps={result['steps']}, "
           f"return={result['return']:.3f}")
+    for policy, row in review_results["holdout"].items():
+        print(f"Held-out {policy}: TP={row['tp']}, FP={row['fp']}, FN={row['fn']}, "
+              f"mean_return={row['mean_return']:.3f}, mean_inspections={row['mean_inspections']:.2f}")
+    for policy, row in review_results["balanced_holdout"]["policies"].items():
+        print(f"Balanced holdout {policy}: TP={row['tp']}, FP={row['fp']}, FN={row['fn']}")
 
 
 def main():

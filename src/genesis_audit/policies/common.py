@@ -58,6 +58,7 @@ class Crawl:
         self.records: Dict[str, List[JSONDict]] = {table: [] for table in CRAWL_ORDER}
         self.next_cursor: Dict[str, Optional[str]] = {}
         self.finished: Dict[str, bool] = {table: False for table in CRAWL_ORDER}
+        self.failed: set[str] = set()
         for act, after in exchanges(observation, history):
             if not isinstance(act, dict) or act.get("name") != "list_records":
                 continue
@@ -67,6 +68,7 @@ class Crawl:
             result = after.get("result") if isinstance(after, dict) else None
             if not isinstance(result, dict) or after.get("error"):
                 self.finished[table] = True  # do not loop on an erroring table
+                self.failed.add(table)
                 continue
             self.records[table].extend(r for r in result.get("records", []) if isinstance(r, dict))
             cursor = result.get("next_cursor")
@@ -74,8 +76,8 @@ class Crawl:
             if cursor is None:
                 self.finished[table] = True
 
-    def next_action(self) -> Optional[JSONDict]:
-        for table in CRAWL_ORDER:
+    def next_action(self, order: Tuple[str, ...] = CRAWL_ORDER) -> Optional[JSONDict]:
+        for table in order:
             if not self.finished[table]:
                 return action("list_records", table=table,
                               cursor=self.next_cursor.get(table), limit=PAGE_LIMIT)
