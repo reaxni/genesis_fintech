@@ -32,3 +32,19 @@ jobs:
           name: genesis-verification
           path: artifacts/*.jsonl
           if-no-files-found: error
+  isolation:
+    if: github.event_name != 'workflow_dispatch' || inputs.full
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash sandbox/run_isolation_checks.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genesis-isolation
+          path: |
+            artifacts/isolation/c18_*.json
+            artifacts/isolation/probe.json
+            artifacts/isolation/suites.txt

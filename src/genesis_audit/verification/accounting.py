@@ -199,8 +199,12 @@ class Accounting:
                  "recognition group must address one invoice")
         invoice = self.invoices[invoice_ids.pop()]
         amount = invoice["total_minor"]
-        signature = sorted((r["account"], r["debit_minor"], r["credit_minor"]) for r in group)
-        _require(signature == [("receivables", amount, 0), ("revenue", 0, amount)]
+        receivables = [row for row in group if row["account"] == "receivables"]
+        revenue = [row for row in group if row["account"] == "revenue"]
+        _require(len(receivables) == 1 and receivables[0]["debit_minor"] == amount
+                 and len(group) == len(receivables) + len(revenue)
+                 and all(row["credit_minor"] > 0 for row in revenue)
+                 and sum(row["credit_minor"] for row in revenue) == amount
                  and event == _timestamp(invoice["issued_at"])
                  and all(r["entity_id"] == invoice["entity_id"] and r["allocation_minor"] is None
                          and r["fx_source_minor"] is None for r in group),

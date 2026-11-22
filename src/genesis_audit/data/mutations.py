@@ -35,14 +35,18 @@ class Mutations:
             "evidence_sets": [evidence],
         })
 
-    def duplicate(self, invoice, group):
+    def duplicate(self, invoice, group, split_revenue=False):
         original = self.history.groups[group]
         second = self.history.identifier()
-        repeated = [
-            dict(row, row_id=self.history.identifier(), posting_group_id=second,
-                 timestamp=(datetime.fromisoformat(row["timestamp"]) + timedelta(days=1)).isoformat())
-            for row in original
-        ]
+        repeated = []
+        for row in original:
+            booked = datetime.fromisoformat(row["timestamp"]) + timedelta(days=1)
+            credits = (row["credit_minor"],)
+            if split_revenue and row["account"] == "revenue":
+                credits = tuple(item["amount_minor"] for item in invoice["line_items"])
+            repeated.extend(dict(row, row_id=self.history.identifier(), posting_group_id=second,
+                                 credit_minor=credit, timestamp=booked.isoformat())
+                            for credit in credits)
         repeated_ids = [row["row_id"] for row in repeated]
         self.apply(
             "duplicate_invoice", second, repeated, [invoice["invoice_id"], *repeated_ids],

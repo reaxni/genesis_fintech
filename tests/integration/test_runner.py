@@ -115,6 +115,12 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "object"):
             receive(io.BytesIO(b"[]\n"))
 
+    def test_wire_rejects_non_finite_numbers(self):
+        for value in (b"NaN", b"Infinity", b"-Infinity", b"1e400", b"-1e400"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "non-finite"):
+                receive(io.BytesIO(b'{"args":{"values":[' + value + b"]}}\n"))
+        self.assertEqual(receive(io.BytesIO(b'{"value":-1.25e3}\n')), {"value": -1250.0})
+
     def test_adapter_forwards_roles_without_own_policy(self):
         calls = []
         data = ModuleType("genesis_audit.data")
