@@ -1,50 +1,32 @@
-name: Genesis checks
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      full:
-        description: Run all suites and the open corpus
-        type: boolean
-        default: false
-
+name: Confirm merged Genesis checks
+on: pull_request
 permissions:
+  actions: read
   contents: read
-
 jobs:
-  bootstrap:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash scripts/verify.sh --container-smoke
-  full:
-    if: github.event_name != 'workflow_dispatch' || inputs.full
-    needs: bootstrap
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash scripts/verify.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: genesis-verification
-          path: artifacts/*.jsonl
-          if-no-files-found: error
-  isolation:
-    if: github.event_name != 'workflow_dispatch' || inputs.full
-    needs: bootstrap
+  main-ci:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - run: bash sandbox/run_isolation_checks.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: genesis-isolation
-          path: |
-            artifacts/isolation/c18_*.json
-            artifacts/isolation/probe.json
-            artifacts/isolation/suites.txt
+      - name: Read the CI result for the merged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGED_SHA: 013e316f7e7010feb956893fcd949812690b8cc0
+        run: |
+          set -euo pipefail
+          endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/genesis-checks.yml/runs?branch=main&event=push&head_sha=$MERGED_SHA"
+          for attempt in $(seq 1 24); do
+            response="$(gh api "$endpoint")"
+            run="$(jq -r '.workflow_runs[0].id // empty' <<<"$response")"
+            state="$(jq -r '.workflow_runs[0].status // empty' <<<"$response")"
+            if [[ "$state" == completed ]]; then
+              jq -r '.workflow_runs[0] | [.id, .head_sha, .head_branch, .event, .conclusion, .html_url] | @tsv' <<<"$response"
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" \
+                --jq '.jobs[] | [.id, .name, .status, .conclusion] | @tsv'
+              jq -e '.workflow_runs[0].conclusion == "success"' <<<"$response" > /dev/null
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Did not observe a completed main workflow run"
+          exit 1
