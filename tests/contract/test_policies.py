@@ -18,8 +18,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from genesis_audit.contracts.v1 import ACTION_LIMIT  # noqa: E402
 from genesis_audit.env import AuditEnv  # noqa: E402
-from genesis_audit.policies import POLICIES, choose_action  # noqa: E402
-from genesis_audit.policies.reconciliation import reconcile  # noqa: E402
+from genesis_audit.policies import DEMO_PLANS, POLICIES, choose_action  # noqa: E402
+from genesis_audit.policies.reconciliation import DEMO_PAGE_BUDGET, reconcile  # noqa: E402
 
 FIXTURE = ROOT / "tests/integration/fixtures/g0_partial_payment"
 POLICY_DIR = ROOT / "src/genesis_audit/policies"
@@ -119,6 +119,33 @@ class PolicyRuns(unittest.TestCase):
         self.assertTrue(all(any(matches(finding, issue) for finding in findings) for issue in issues))
         self.assertEqual(len(baseline.outcome()["findings"]["findings"]), len(issues) - 1)
         self.assertEqual(improved.outcome()["inspection_steps"], baseline.outcome()["inspection_steps"])
+
+    def test_budgeted_plans_cap_reads_and_submit_only_proven_findings(self):
+        episode = ROOT / "episodes/dev/episode-10"
+        issues = json.loads((episode / "truth.json").read_text(encoding="utf-8"))["issues"]
+        for plan in DEMO_PLANS:
+            with self.subTest(plan=plan):
+                env, trajectory = run_policy(plan, episode)
+                self.assertLessEqual(len(trajectory) - 1, DEMO_PAGE_BUDGET)
+                self.assertEqual(trajectory[-1][0]["name"], "submit")
+                self.assertTrue(env.outcome()["terminated"])
+                for finding in env.outcome()["findings"]["findings"]:
+                    self.assertTrue(any(matches(finding, issue) for issue in issues))
+
+    def test_budgeted_plan_ignores_ledger_after_page_error(self):
+        first = {"manifest": {"episode_id": "sample", "period_start": "2026-03-01T00:00:00+05:00",
+                              "period_end": "2026-04-01T00:00:00+05:00"}, "policy": {}}
+        row = {"row_id": "r1", "timestamp": "2026-02-28T11:00:00+05:00",
+               "event_at": "2026-03-01T11:00:00+05:00", "currency": "KZT", "debit_minor": 300}
+        page = {"result": {"records": [row], "next_cursor": "ledger:50"}}
+        history = [
+            {"observation": first, "action": {"name": "list_records", "args": {"table": "ledger", "cursor": None}}},
+            {"observation": page, "action": {"name": "list_records", "args": {"table": "ledger", "cursor": "ledger:50"}}},
+        ]
+        final = {"result": None, "error": {"code": "invalid_cursor"}, "remaining_steps": 1}
+        action = choose_action("ledger_docs", final, history, rng=Random(0))
+        self.assertEqual(action["name"], "submit")
+        self.assertEqual(action["args"]["findings"]["findings"], [])
 
     def test_reconciliation_is_silent_on_clean_twin(self):
         from test_env_contract import make_clean_episode  # same folder
