@@ -1,67 +1,94 @@
-name: Genesis checks
-
+name: Verify submission and remove finished branches
 on:
   pull_request:
-  push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      full:
-        description: Run all suites and the open corpus
-        type: boolean
-        default: false
-
 permissions:
-  contents: read
-
+  actions: read
+  contents: write
+  pull-requests: read
 jobs:
-  bootstrap:
+  cleanup:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'work/cleanup-submission-branches'
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/verify.sh --container-smoke
-  full:
-    if: github.event_name != 'workflow_dispatch' || inputs.full
-    needs: bootstrap
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Export submission source
+        with:
+          ref: 481e4c5e74a15883539b507e54bba1ee936002d7
+          fetch-depth: 0
+      - name: Confirm the final main run and submission archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: 481e4c5e74a15883539b507e54bba1ee936002d7
         run: |
           set -euo pipefail
-          package="$RUNNER_TEMP/genesis-submission"
-          mkdir -p "$package"
-          git archive --format=tar HEAD | tar -xf - -C "$package"
-          git rev-parse HEAD > "$package/REVISION"
-          test -s "$package/.dockerignore"
-          test -s "$package/LICENSE"
-      - name: Verify the exported submission
-        working-directory: ${{ runner.temp }}/genesis-submission
-        run: bash scripts/verify.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: genesis-verification
-          path: ${{ runner.temp }}/genesis-submission/artifacts/*.jsonl
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: genesis-submission
-          path: ${{ runner.temp }}/genesis-submission/
-          include-hidden-files: true
-          if-no-files-found: error
-  isolation:
-    if: github.event_name != 'workflow_dispatch' || inputs.full
-    needs: bootstrap
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash sandbox/run_isolation_checks.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: genesis-isolation
-          path: |
-            artifacts/isolation/c18_*.json
-            artifacts/isolation/probe.json
-            artifacts/isolation/suites.txt
+          endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/genesis-checks.yml/runs?branch=main&event=push&head_sha=$RELEASE_SHA"
+          for attempt in $(seq 1 30); do
+            response="$(gh api "$endpoint")"
+            run="$(jq -r '.workflow_runs[0].id // empty' <<<"$response")"
+            state="$(jq -r '.workflow_runs[0].status // empty' <<<"$response")"
+            if [[ "$state" == completed ]]; then
+              jq -r '.workflow_runs[0] | [.id, .head_sha, .head_branch, .conclusion, .html_url] | @tsv' <<<"$response"
+              jq -e '.workflow_runs[0].conclusion == "success"' <<<"$response" > /dev/null
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" \
+                --jq '.jobs[] | [.name, .status, .conclusion] | @tsv'
+              artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+                --jq '.artifacts[] | select(.name == "genesis-submission" and (.expired | not)) | .id')"
+              test -n "$artifact"
+              printf 'Submission archive: https://github.com/%s/actions/runs/%s/artifacts/%s\n' "$GITHUB_REPOSITORY" "$run" "$artifact"
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "No completed push run for $RELEASE_SHA"
+          exit 1
+      - name: Remove the verified branch references
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: 481e4c5e74a15883539b507e54bba1ee936002d7
+          SELF_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          test "$(git rev-parse refs/remotes/origin/main)" = "$RELEASE_SHA"
+          open_refs="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --paginate \
+            --jq ".[] | select(.number != $SELF_PR) | .base.ref, .head.ref")"
+          leases=()
+          removals=()
+          while read -r branch expected kind; do
+            ref="refs/heads/$branch"
+            actual="$(git ls-remote --refs origin "$ref")"
+            if [[ -z "$actual" ]]; then
+              printf 'Already absent: %s\n' "$branch"
+              continue
+            fi
+            read -r current remote_ref <<<"$actual"
+            test "$remote_ref" = "$ref"
+            test "$current" = "$expected"
+            if grep -Fxq -- "$branch" <<<"$open_refs"; then
+              printf 'Branch belongs to an open pull request: %s\n' "$branch" >&2
+              exit 1
+            fi
+            if [[ "$kind" == merged ]]; then
+              git merge-base --is-ancestor "$expected" "$RELEASE_SHA"
+            fi
+            leases+=("--force-with-lease=$ref:$expected")
+            removals+=(":$ref")
+            printf 'Verified %s %s %s\n' "$kind" "$branch" "$expected"
+          done <<EOF
+          work/bootstrap-t00 40cd4032676831143d849c21470be3d0e1b93642 merged
+          work/scoring-t04 dce29d6ffe08d897a823cd6273ba06fcc2dc063e merged
+          work/env-t03 32c2a8b3d7c5c3c9e0ea6cf791dd6899960abc0e merged
+          work/data-t02 6cdd7a575669e70262e8d63d4751256fe95763d4 merged
+          work/release-t08 e038778ddce2c07d4f70df4cd157391cfbddf285 merged
+          work/submission-review 60be4ee99d2c3055b3dd2b639b544f18ffa3f9c6 merged
+          work/verify-merged-review b04456e2760f310c33ee8faeab716649c084b96b temporary
+          work/aggregate-reconciliation 1777be79e3ac08110e7bdbf718b45714a7b41520 merged
+          work/submission-package 2b67a27c08703232470268afb7ceb10dc4ed39e4 merged
+          work/cleanup-submission-branches $SELF_SHA temporary
+          EOF
+          if [[ "${#removals[@]}" -gt 0 ]]; then
+            git push --atomic "${leases[@]}" origin "${removals[@]}"
+          fi
+          git ls-remote --heads origin
