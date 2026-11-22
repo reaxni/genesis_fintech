@@ -12,7 +12,7 @@ from .oracle import oracle_findings
 from .remote_policy import PolicyListener
 from .session import run_episode
 
-POLICIES = ("random", "reconciliation", "mark_all")
+POLICIES = ("random", "reconciliation", "mark_all", "reconciliation_aggregate")
 
 
 def corpus(root: Path) -> list[Path]:
@@ -89,8 +89,10 @@ def verify(episodes: Path, output: Path, socket_path: Path) -> None:
         missed = sum(outcome["fn"] or 0 for outcome in outcomes)
         invalid = sum(outcome["f1"] is None for outcome in outcomes)
         mean_return = fmean(outcome["return"] for outcome in outcomes)
+        mean_inspections = fmean(outcome["inspection_steps"] for outcome in outcomes)
         print(f"{policy}: episodes={len(outcomes)}, TP={correct}, FP={false_positives}, "
-              f"FN={missed}, invalid={invalid}, mean_return={mean_return:.3f}")
+              f"FN={missed}, invalid={invalid}, mean_return={mean_return:.3f}, "
+              f"mean_inspections={mean_inspections:.2f}")
     print(f"Train demo: episode={result['episode_id']}, steps={result['steps']}, "
           f"return={result['return']:.3f}")
 

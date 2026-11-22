@@ -1,11 +1,12 @@
-"""Simple reconciliation baseline.
+"""Simple and aggregate reconciliation policies.
 
-1. Page through ledger, invoices, payments and fx with list_records.
+1. Page through ledger, invoices, payments and fx with list_records. The
+   aggregate policy reads fx only when the ledger contains an FX source.
 2. Apply four public, documented checks (policy.json + manifest):
    * payment_allocation: intended allocation on the payment vs allocated
      amount in ledger rows of that payment and invoice;
-   * duplicate_invoice: a second recognition posting group with the same
-     postings for the same invoice;
+   * duplicate_invoice: a second recognition posting group for the same
+     invoice with matching postings or, in aggregate mode, account totals;
    * fx_conversion: fx_source_minor * rate(event date) vs the base amount;
    * period_cutoff: recognition timestamp and event date fall on different
      sides of the [period_start, period_end) boundary.
@@ -27,21 +28,30 @@ from .common import Crawl, episode_id, initial_observation, remaining_steps, sub
 ROUNDING = {"HALF_EVEN": ROUND_HALF_EVEN, "HALF_UP": ROUND_HALF_UP}
 
 
-def choose(observation: JSONDict, history: List[JSONDict], rng: Any) -> JSONDict:
+def choose(observation: JSONDict, history: List[JSONDict], rng: Any, *, enhanced: bool = False) -> JSONDict:
     episode = episode_id(observation, history)
     crawl = Crawl(observation, history)
     nxt = crawl.next_action()
+    if (enhanced and nxt is not None and nxt["args"]["table"] == "fx"
+            and not any(_has_fx_source(row) for row in crawl.records["ledger"])):
+        nxt = None
     if nxt is not None and remaining_steps(observation) > 1:
         return nxt
     first = initial_observation(observation, history)
-    findings = reconcile(crawl.records, first.get("manifest") or {}, first.get("policy") or {})
+    findings = reconcile(
+        crawl.records, first.get("manifest") or {}, first.get("policy") or {},
+        aggregate_duplicates=enhanced,
+    )
     return submit(episode, findings)
 
 
 # ---------------------------------------------------------------- analysis
 
 
-def reconcile(records: Dict[str, List[JSONDict]], manifest: JSONDict, policy: JSONDict) -> List[JSONDict]:
+def reconcile(
+    records: Dict[str, List[JSONDict]], manifest: JSONDict, policy: JSONDict, *,
+    aggregate_duplicates: bool = False,
+) -> List[JSONDict]:
     ledger = records.get("ledger", [])
     invoices = records.get("invoices", [])
     payments = records.get("payments", [])
@@ -50,7 +60,7 @@ def reconcile(records: Dict[str, List[JSONDict]], manifest: JSONDict, policy: JS
     policy = policy if isinstance(policy, dict) else {}
     checks = (
         lambda: payment_allocation(ledger, invoices, payments),
-        lambda: duplicate_invoice(ledger, invoices),
+        lambda: duplicate_invoice(ledger, invoices, aggregate=aggregate_duplicates),
         lambda: fx_conversion(ledger, fx, manifest, policy),
         lambda: period_cutoff(ledger, manifest),
     )
@@ -137,8 +147,19 @@ def _signature(rows) -> Tuple:
     ))
 
 
-def duplicate_invoice(ledger, invoices) -> List[JSONDict]:
+def _aggregate_signature(rows) -> Tuple:
+    totals = defaultdict(lambda: [0, 0])
+    for row in rows:
+        debit_credit = totals[(row.get("account"), row.get("currency"))]
+        debit_credit[0] += _int(row.get("debit_minor"))
+        debit_credit[1] += _int(row.get("credit_minor"))
+    return tuple(sorted((account, currency, debit, credit)
+                        for (account, currency), (debit, credit) in totals.items()))
+
+
+def duplicate_invoice(ledger, invoices, *, aggregate=False) -> List[JSONDict]:
     invoice_doc = {i.get("invoice_id"): i.get("doc_id") for i in invoices}
+    signature = _aggregate_signature if aggregate else _signature
     recognition: Dict[str, List[List[JSONDict]]] = defaultdict(list)
     for rows in _groups(ledger).values():
         if any(r.get("payment_id") for r in rows):
@@ -152,8 +173,9 @@ def duplicate_invoice(ledger, invoices) -> List[JSONDict]:
             continue
         groups = sorted(groups, key=_earliest)
         original = groups[0]
+        original_signature = signature(original)
         for dup in groups[1:]:
-            if _signature(dup) != _signature(original):
+            if signature(dup) != original_signature:
                 continue  # reversal or a different posting is not a duplicate
             amount = sum(_int(r.get("debit_minor")) for r in dup)
             evidence = [invoice_doc.get(inv)] + [r["row_id"] for r in original + dup]
@@ -163,7 +185,8 @@ def duplicate_invoice(ledger, invoices) -> List[JSONDict]:
                 "claimed_amount_minor": amount,
                 "currency": dup[0].get("currency"),
                 "evidence_ids": _cap(evidence),
-                "explanation": f"Invoice {inv} is recognised twice with identical postings.",
+                "explanation": f"Invoice {inv} is recognised twice with "
+                               f"{'matching account totals' if aggregate else 'identical postings'}.",
             })
     return out
 
@@ -198,6 +221,10 @@ def _local_date(ts: Any, timezone: Any) -> Optional[date]:
         return moment.date()  # timestamps carry the local offset
 
 
+def _has_fx_source(row) -> bool:
+    return type(row.get("fx_source_minor")) is int and bool(row.get("fx_source_currency"))
+
+
 def fx_conversion(ledger, fx, manifest, policy) -> List[JSONDict]:
     exponents = manifest.get("currency_exponents")
     exponents = exponents if isinstance(exponents, dict) else {}
@@ -216,9 +243,9 @@ def fx_conversion(ledger, fx, manifest, policy) -> List[JSONDict]:
             continue
     out = []
     for row in ledger:
-        source_minor, source_cur = row.get("fx_source_minor"), row.get("fx_source_currency")
-        if type(source_minor) is not int or not source_cur:
+        if not _has_fx_source(row):
             continue
+        source_minor, source_cur = row["fx_source_minor"], row["fx_source_currency"]
         target_cur = row.get("currency")
         day = _local_date(row.get("event_at") if use_event else row.get("timestamp"), timezone)
         if day is None:

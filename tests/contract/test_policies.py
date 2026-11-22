@@ -1,4 +1,4 @@
-"""Role B scripted policies (T07): random, reconciliation, mark_all.
+"""Role B scripted policies and finance reconciliation rules.
 
 Run:  PYTHONPATH=src python -m unittest discover -s tests/contract -v
 """
@@ -51,7 +51,7 @@ def matches(finding, issue):
 
 
 class PolicyBoundary(unittest.TestCase):
-    ALLOWED = {"__future__", "typing", "collections", "datetime", "decimal", "random",
+    ALLOWED = {"__future__", "typing", "collections", "datetime", "decimal", "functools", "random",
                "zoneinfo", "math", "genesis_audit.contracts.v1"}
 
     def test_policies_import_only_stdlib_and_contract(self):
@@ -75,7 +75,7 @@ class PolicyBoundary(unittest.TestCase):
             choose_action("oracle", {}, [], rng=Random(0))
 
     def test_registry_names(self):
-        self.assertEqual(set(POLICIES), {"random", "reconciliation", "mark_all"})
+        self.assertEqual(set(POLICIES), {"random", "reconciliation", "reconciliation_aggregate", "mark_all"})
 
 
 class PolicyRuns(unittest.TestCase):
@@ -96,6 +96,29 @@ class PolicyRuns(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertTrue(matches(findings[0], truth["issues"][0]))
         self.assertEqual(env.outcome()["inspection_steps"], 4)  # expected_score: 0.992
+
+    def test_aggregate_skips_fx_only_when_unused(self):
+        domestic, domestic_trace = run_policy("reconciliation_aggregate")
+        baseline, _ = run_policy("reconciliation")
+        self.assertEqual(domestic.outcome()["findings"], baseline.outcome()["findings"])
+        self.assertEqual(domestic.outcome()["inspection_steps"], baseline.outcome()["inspection_steps"] - 1)
+        self.assertFalse(any(act["args"].get("table") == "fx" for act, _ in domestic_trace))
+
+        foreign_episode = ROOT / "episodes/train/episode-08"
+        foreign, foreign_trace = run_policy("reconciliation_aggregate", foreign_episode)
+        self.assertTrue(any(act["args"].get("table") == "fx" for act, _ in foreign_trace))
+        self.assertTrue(any(f["type"] == "fx_conversion" for f in foreign.outcome()["findings"]["findings"]))
+
+    def test_aggregate_finds_split_duplicate_with_all_evidence(self):
+        episode = ROOT / "episodes/train/episode-04"
+        improved, _ = run_policy("reconciliation_aggregate", episode)
+        baseline, _ = run_policy("reconciliation", episode)
+        issues = json.loads((episode / "truth.json").read_text(encoding="utf-8"))["issues"]
+        findings = improved.outcome()["findings"]["findings"]
+        self.assertEqual(len(findings), len(issues))
+        self.assertTrue(all(any(matches(finding, issue) for finding in findings) for issue in issues))
+        self.assertEqual(len(baseline.outcome()["findings"]["findings"]), len(issues) - 1)
+        self.assertEqual(improved.outcome()["inspection_steps"], baseline.outcome()["inspection_steps"])
 
     def test_reconciliation_is_silent_on_clean_twin(self):
         from test_env_contract import make_clean_episode  # same folder
@@ -153,6 +176,8 @@ class ReconciliationRules(unittest.TestCase):
         f = found[0]
         self.assertEqual((f["type"], set(f["affected_ids"]), f["claimed_amount_minor"]),
                          ("duplicate_invoice", {"inv-1", "r3", "r4"}, 1000000))
+        self.assertEqual(len(reconcile({"ledger": ledger, "invoices": invoices}, MANIFEST, POLICY,
+                                       aggregate_duplicates=True)), 1)
 
     def test_reversal_is_not_a_duplicate(self):
         ledger = [
@@ -162,6 +187,7 @@ class ReconciliationRules(unittest.TestCase):
             row("r4", "g2", "receivables", credit=1000000, invoice="inv-1"),
         ]
         self.assertEqual(reconcile({"ledger": ledger}, MANIFEST, POLICY), [])
+        self.assertEqual(reconcile({"ledger": ledger}, MANIFEST, POLICY, aggregate_duplicates=True), [])
 
     def test_fx_100_usd_at_500_booked_49000(self):
         ledger = [
