@@ -26,11 +26,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/verify.sh
+      - name: Export submission source
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/genesis-submission"
+          mkdir -p "$package"
+          git archive --format=tar HEAD | tar -xf - -C "$package"
+          git rev-parse HEAD > "$package/REVISION"
+          test -s "$package/.dockerignore"
+          test -s "$package/LICENSE"
+      - name: Verify the exported submission
+        working-directory: ${{ runner.temp }}/genesis-submission
+        run: bash scripts/verify.sh
       - uses: actions/upload-artifact@v4
         with:
           name: genesis-verification
-          path: artifacts/*.jsonl
+          path: ${{ runner.temp }}/genesis-submission/artifacts/*.jsonl
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: genesis-submission
+          path: ${{ runner.temp }}/genesis-submission/
+          include-hidden-files: true
           if-no-files-found: error
   isolation:
     if: github.event_name != 'workflow_dispatch' || inputs.full
